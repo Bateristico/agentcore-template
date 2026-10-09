@@ -39,7 +39,7 @@ def calculate(expression: str) -> str:
     except (SyntaxError, ValueError, ZeroDivisionError, OverflowError) as exc:
         return f"error: {exc}"
     if isinstance(value, float):
-        return f"{round(value, 10):g}"
+        return format(round(value, 10), ".15g")
     return str(value)
 
 
