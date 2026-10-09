@@ -4,7 +4,7 @@ metrics, billed cost from Cost Explorer by tag, and reconciliation between them.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -31,6 +31,17 @@ def _dims(**kv: str) -> list[dict[str, str]]:
 def emf_dimensions(project: str, agent: str, model: str) -> list[dict[str, str]]:
     """Dimensions of the kit's EMF series for one deployment (Project = deploy prefix)."""
     return _dims(Project=project, Agent=agent, Model=model)
+
+
+def completed_days_window(today: date, days: int) -> tuple[date, date, datetime, datetime]:
+    """`days` whole completed UTC days: (start_day, end_day, start, end) with end = today 00:00 UTC, exclusive.
+
+    The same window for CloudWatch (datetimes) and Cost Explorer (dates, End exclusive), so today's partial day
+    never enters a reconciliation."""
+    end_day = today
+    start_day = end_day - timedelta(days=days)
+    return (start_day, end_day, datetime(start_day.year, start_day.month, start_day.day, tzinfo=UTC),
+            datetime(end_day.year, end_day.month, end_day.day, tzinfo=UTC))
 
 
 def _period(start: datetime, end: datetime) -> int:

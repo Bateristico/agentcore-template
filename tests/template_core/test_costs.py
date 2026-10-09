@@ -8,6 +8,7 @@ from template_core.costs import (
     LiveCost,
     agentcore_window_cost,
     billed_costs,
+    completed_days_window,
     cost_tag_state,
     emf_dimensions,
     live_costs,
@@ -162,3 +163,9 @@ def test_reconcile_compares_genuine_zero_billed():
     live = [LiveCost("a", "m1", Usage("m1", 1), 0, Decimal("1.00"))]
     rows = reconcile(live, BilledCosts("ok", "", {("a", "m1"): Decimal(0)}, {}, Decimal(0), Decimal(0)), CFG)
     assert rows[0].within is False and abs(rows[0].delta_pct + 100.0) < 1e-9
+
+
+def test_completed_days_window_excludes_today():
+    start_day, end_day, start, end = completed_days_window(date(2026, 10, 9), 7)
+    assert (start_day, end_day) == (date(2026, 10, 2), date(2026, 10, 9))
+    assert (start, end) == (datetime(2026, 10, 2, tzinfo=UTC), datetime(2026, 10, 9, tzinfo=UTC))

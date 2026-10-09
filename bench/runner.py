@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 import secrets
 import time
@@ -16,6 +17,8 @@ from bench.records import Row, Task, Verdict
 from bench.suite import Case, Suite
 from template_core.agentcore import InvokeResult
 from template_core.pricing import PriceTable
+
+log = logging.getLogger(__name__)
 
 JUDGE_ESTIMATE = Usage(model="judge", input_tokens=300, output_tokens=60)
 
@@ -108,7 +111,10 @@ def run_benchmark(
                 client_latency_ms=0, attempts=attempts,
             )
         if on_row is not None:
-            on_row(row)
+            try:
+                on_row(row)
+            except Exception:  # noqa: BLE001 - a progress callback (e.g. the UI) must never abort the run
+                log.warning("on_row callback failed for %s/%s#%s", row.model, row.case_id, row.repeat, exc_info=True)
         return row
 
     with ThreadPoolExecutor(max_workers=max(1, spec.concurrency)) as pool:

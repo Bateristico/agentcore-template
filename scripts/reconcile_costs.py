@@ -6,20 +6,20 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import boto3
 
 from template_core.console import utf8_stdout
 from template_core.config import load_config
-from template_core.costs import billed_costs, live_costs, reconcile
+from template_core.costs import billed_costs, completed_days_window, live_costs, reconcile
 from template_core.pricing import format_usd, load_pricing
 
 
 def main() -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--days", type=int, default=7, help="whole UTC days, ending today (inclusive)")
+    ap.add_argument("--days", type=int, default=7, help="whole completed UTC days, ending yesterday (inclusive)")
     ap.add_argument("--profile")
     ap.add_argument("--tolerance", type=float, default=0.10)
     args = ap.parse_args()
@@ -27,10 +27,7 @@ def main() -> int:
     cfg, prices = load_config(), load_pricing()
     session = boto3.Session(profile_name=args.profile, region_name=cfg.region)
     # Whole completed UTC days only: end is midnight UTC today (exclusive), so today's partial day is excluded.
-    end_day = datetime.now(UTC).date()
-    start_day = end_day - timedelta(days=args.days)
-    start = datetime(start_day.year, start_day.month, start_day.day, tzinfo=UTC)
-    end = datetime(end_day.year, end_day.month, end_day.day, tzinfo=UTC)
+    start_day, end_day, start, end = completed_days_window(datetime.now(UTC).date(), args.days)
 
     live = live_costs(session.client("cloudwatch"), cfg, prices, start, end)
     billed = billed_costs(session.client("ce", region_name="us-east-1"), cfg, start_day, end_day)

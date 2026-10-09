@@ -145,3 +145,49 @@ def test_costs_page_survives_cloudwatch_failure(ctx):
     at = run_page(PAGES / "pages" / "3_Costs.py", ctx)
     assert any("not readable" in e.value for e in at.error)
     assert any("Billed" in s.value for s in at.subheader)
+
+
+class RecordingCW:
+    def __init__(self):
+        self.windows = []
+
+    def get_metric_data(self, MetricDataQueries, StartTime, EndTime, NextToken=None):
+        self.windows.append((StartTime, EndTime))
+        return {"MetricDataResults": [{"Id": q["Id"], "Values": []} for q in MetricDataQueries]}
+
+
+class RecordingCE:
+    def __init__(self):
+        self.periods = []
+
+    def list_cost_allocation_tags(self, TagKeys):
+        return {"CostAllocationTags": [{"TagKey": k, "Status": "Active"} for k in TagKeys]}
+
+    def get_cost_and_usage(self, **kwargs):
+        self.periods.append(kwargs["TimePeriod"])
+        return {"ResultsByTime": []}
+
+
+def test_costs_reconciliation_uses_whole_completed_utc_days(ctx):
+    from datetime import UTC, datetime, timedelta
+
+    ctx.cloudwatch, ctx.cost_explorer = RecordingCW(), RecordingCE()
+    at = run_page(PAGES / "pages" / "3_Costs.py", ctx)
+    today = datetime.now(UTC).date()
+    midnight = datetime(today.year, today.month, today.day, tzinfo=UTC)
+    assert ctx.cost_explorer.periods == [{"Start": (today - timedelta(days=7)).isoformat(), "End": today.isoformat()}]
+    # the reconcile estimate covers the same completed days as Cost Explorer (end = today 00:00 UTC, exclusive)
+    assert (midnight - timedelta(days=7), midnight) in ctx.cloudwatch.windows
+    # the live estimate may include today, and says so
+    assert any(end > midnight for _, end in ctx.cloudwatch.windows)
+    assert any("today" in c.value for c in at.caption)
+
+
+def test_costs_page_warns_on_expired_credentials_for_billing(ctx):
+    class ExpiredCE(RecordingCE):
+        def get_cost_and_usage(self, **kwargs):
+            raise ClientError({"Error": {"Code": "ExpiredTokenException", "Message": "expired"}}, "GetCostAndUsage")
+
+    ctx.cost_explorer = ExpiredCE()
+    at = run_page(PAGES / "pages" / "3_Costs.py", ctx)
+    assert any("not readable" in w.value and "ExpiredToken" in w.value for w in at.warning)

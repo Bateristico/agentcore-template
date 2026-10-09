@@ -2,6 +2,9 @@
 
     uv run scripts/refresh_pricing.py --profile <profile>
     uv run scripts/refresh_pricing.py --profile <profile> --write
+
+Usage types in pricing.yaml are region-specific (the shipped ones are for eu-central-1). Exit code 1 when any
+row is not-found: re-derive those usage types for the target region before trusting the prices.
 """
 
 from __future__ import annotations
@@ -44,6 +47,11 @@ def main() -> int:
         print(f"updated {len(changed)} price(s) in {args.pricing}")
     elif changed:
         print(f"{len(changed)} price(s) differ; re-run with --write to update")
+    not_found = sorted({f"{d.alias}.{d.component}" for d in diffs if d.status == "not-found"})
+    if not_found:
+        print(f"ERROR: {len(not_found)} price(s) not found in the Price List for region {region}: {', '.join(not_found)}. "
+              "Usage types differ by region; re-derive them in config/pricing.yaml (source.usage_types).")
+        return 1
     return 0
 
 

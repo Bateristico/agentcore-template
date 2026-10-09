@@ -123,3 +123,13 @@ def test_tokens_from_throttled_attempts_are_counted():
     row = rows[0]
     assert row.attempts == 2 and row.error is None
     assert row.usage["input_tokens"] == 300 and row.usage["output_tokens"] == 15 and row.usage["latency_ms"] == 300
+
+
+def test_on_row_exception_is_logged_and_never_aborts_the_run(caplog):
+    def on_row(row):
+        raise RuntimeError("progress bar exploded")
+
+    with caplog.at_level("WARNING", logger="bench.runner"):
+        rows = run_benchmark(spec(), lambda t, r: ok(t), on_row=on_row)
+    assert len(rows) == 4 and all(r.error is None and r.output == "answer" for r in rows)
+    assert "progress bar exploded" in caplog.text
