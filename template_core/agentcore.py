@@ -54,8 +54,19 @@ def parse_response(agent: str, model: str | None, session_id: str, body: bytes, 
     if not isinstance(data, dict):
         error = {"type": "BadResponse", "message": f"runtime returned an unexpected body: {body[:200]!r}"}
         return InvokeResult(agent, model, session_id, None, None, error, latency_ms)
-    usage = Usage.from_dict(data["usage"]) if isinstance(data.get("usage"), dict) else None
-    return InvokeResult(agent, usage.model if usage else model, session_id, data.get("output"), usage, data.get("error"), latency_ms)
+    usage = None
+    if isinstance(data.get("usage"), dict):
+        try:
+            usage = Usage.from_dict(data["usage"])
+        except (KeyError, TypeError, ValueError):
+            usage = None
+    error = data.get("error")
+    if error is not None and not isinstance(error, dict):
+        error = {"type": "AgentError", "message": str(error)}
+    output = data.get("output")
+    if output is None and error is None:
+        error = {"type": "BadResponse", "message": "runtime returned neither output nor error"}
+    return InvokeResult(agent, usage.model if usage else model, session_id, output, usage, error, latency_ms)
 
 
 class AgentClient:

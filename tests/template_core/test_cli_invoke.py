@@ -2,7 +2,8 @@ from datetime import date
 
 from agentkit.metering import Usage
 from template_core.agentcore import InvokeResult
-from template_core.cli_invoke import format_result
+from template_core.cli_invoke import format_result, main
+from template_core.deployment import DeploymentNotFound
 from template_core.pricing import PriceTable
 
 PRICES = PriceTable.model_validate(
@@ -22,3 +23,14 @@ def test_format_error_and_unpriced():
     usage = Usage("m9", input_tokens=5)
     text = format_result(InvokeResult("a", "m9", "sid", None, usage, {"type": "X", "message": "boom"}, 10), PRICES)
     assert "ERROR X: boom" in text and "cost=unpriced" in text
+
+
+def test_deployment_not_found_exits_2(monkeypatch, capsys):
+    def boom(cfg, session):
+        raise DeploymentNotFound("x")
+
+    monkeypatch.setattr("template_core.cli_invoke.load_deployment", boom)
+    rc = main(["--agent", "tools-agent", "--prompt", "hi"])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "invoke:" in captured.err and "x" in captured.err

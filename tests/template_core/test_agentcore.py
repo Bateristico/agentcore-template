@@ -90,3 +90,29 @@ def test_unknown_agent():
 def test_session_ids_are_long_enough_and_unique():
     a, b = new_session_id(), new_session_id()
     assert len(a) >= 33 and a != b
+
+
+def test_empty_object_is_bad_response():
+    client, _ = client_for(b"{}")
+    r = client.invoke("tools-agent", "hello")
+    assert not r.ok and r.error["type"] == "BadResponse"
+
+
+def test_malformed_usage_does_not_raise():
+    body = json.dumps({"output": "x", "usage": {"model": "m", "input_tokens": "abc"}}).encode()
+    client, _ = client_for(body)
+    r = client.invoke("tools-agent", "hello")
+    assert r.usage is None and r.ok and r.output == "x"
+
+
+def test_usage_missing_model_does_not_raise():
+    body = json.dumps({"output": "x", "usage": {"input_tokens": 1}}).encode()
+    client, _ = client_for(body)
+    r = client.invoke("tools-agent", "hello")
+    assert r.usage is None and r.ok
+
+
+def test_non_dict_error_is_coerced():
+    client, _ = client_for(json.dumps({"error": "boom"}).encode())
+    r = client.invoke("tools-agent", "hello")
+    assert r.error == {"type": "AgentError", "message": "boom"} and not r.throttled and not r.ok

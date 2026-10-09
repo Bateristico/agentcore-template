@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 
 from template_core.agentcore import AgentClient, InvokeResult
-from template_core.config import DEFAULT_CONFIG, load_config
-from template_core.deployment import load_deployment
+from template_core.config import DEFAULT_CONFIG, ConfigError, load_config
+from template_core.deployment import DeploymentNotFound, load_deployment
 from template_core.pricing import DEFAULT_PRICING, PriceTable, format_usd, load_pricing
 
 
@@ -42,11 +44,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true", help="print the raw result as JSON")
     args = ap.parse_args(argv)
 
-    cfg = load_config(args.config)
-    prices = load_pricing(args.pricing)
-    session = boto3.Session(profile_name=args.profile, region_name=cfg.region)
-    client = AgentClient.from_session(load_deployment(cfg, session), session)
-    result = client.invoke(args.agent, args.prompt, model=args.model)
+    try:
+        cfg = load_config(args.config)
+        prices = load_pricing(args.pricing)
+        session = boto3.Session(profile_name=args.profile, region_name=cfg.region)
+        client = AgentClient.from_session(load_deployment(cfg, session), session)
+        result = client.invoke(args.agent, args.prompt, model=args.model)
+    except (DeploymentNotFound, ConfigError, KeyError, NoCredentialsError, ClientError, BotoCoreError) as exc:
+        msg = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
+        print(f"invoke: {msg}", file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps({**result.__dict__, "usage": result.usage.to_dict() if result.usage else None}, ensure_ascii=False, indent=2))
     else:
