@@ -1,0 +1,1 @@
+# Extra Python dependencies for this agent (strands-agents comes from the kit).
