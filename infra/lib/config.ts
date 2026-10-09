@@ -78,7 +78,10 @@ export function parseConfig(text: string, overrides: ConfigOverrides = {}): Depl
       }
       const extra = Object.keys(m).filter((k) => k !== 'profile' && k !== 'billing_tag');
       if (extra.length) problems.push(`models.${alias}: unknown key(s) ${extra.join(', ')}`);
-      models[alias] = { profile: m.profile, billing_tag: m.billing_tag !== false };
+      if (m.billing_tag !== undefined && typeof m.billing_tag !== 'boolean') {
+        problems.push(`models.${alias}.billing_tag: must be true or false`);
+      }
+      models[alias] = { profile: m.profile, billing_tag: m.billing_tag ?? true };
     }
   }
 
@@ -96,6 +99,10 @@ export function parseConfig(text: string, overrides: ConfigOverrides = {}): Depl
       }
       const rn = runtimeName(prefix, name);
       if (!RUNTIME_NAME_RE.test(rn)) problems.push(`runtime name '${rn}' for agent '${name}' is longer than 48 chars or invalid`);
+      if (isObject(a)) {
+        const extraAgent = Object.keys(a).filter((k) => k !== 'models' && k !== 'default');
+        if (extraAgent.length) problems.push(`agents.${name}: unknown key(s) ${extraAgent.join(', ')}`);
+      }
       const list: string[] = isObject(a) && Array.isArray(a.models) ? a.models.map(String) : [];
       if (list.length === 0) problems.push(`agents.${name}.models: at least one model is required`);
       for (const alias of list) {
