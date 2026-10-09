@@ -35,7 +35,6 @@ Deploy [Strands](https://strandsagents.com) agents to **Amazon Bedrock AgentCore
 | AWS CLI | v2 | `aws --version` |
 | Node.js | 20+ | `node --version` |
 | AWS CDK CLI | v2 | `npx cdk --version` |
-| Docker Desktop | with `buildx` | `docker buildx ls` (the list must include `linux/arm64`) |
 | uv | 0.9+ | `uv --version` (uv installs the right Python for you) |
 
 You also need:
@@ -43,7 +42,7 @@ You also need:
 - **An AWS profile** for the target account with permission to deploy CloudFormation, IAM, ECR, S3, CloudWatch, Bedrock, and AgentCore resources. For the validation account, use `<profile>`.
 - **Bedrock model access** in the target region for every model you list in `config/deploy.yaml`. The preflight check (step 4.2) verifies this.
 
-> **Windows note:** AgentCore only runs `linux/arm64` containers. Docker Desktop builds them through emulation, so the first build takes a few minutes. If `linux/arm64` is missing from `docker buildx ls`, see [Troubleshooting](#9-troubleshooting).
+> **No Docker needed:** AgentCore only runs `linux/arm64` containers. The images are built in AWS CodeBuild on an ARM build host during `cdk deploy`, so your machine needs no Docker and no emulation. Each image build takes a few minutes and costs a few cents.
 
 ## 2. Install
 
@@ -108,7 +107,7 @@ aws sts get-caller-identity --profile <profile>     # confirm the account
 
 ### 4.2 Preflight
 
-This checks the account, the CDK bootstrap, Docker arm64 support, model access (about 1 token per model), and pricing coverage. Nothing is deployed.
+This checks the account, the CDK bootstrap, model access (a few tokens per model), and pricing coverage. Nothing is deployed.
 
 ```powershell
 uv run validate g0 --profile <profile>
@@ -309,7 +308,7 @@ Nothing in the code is tied to a specific account. Validation gate G9 proves thi
 | Symptom | Fix |
 |---|---|
 | `ExpiredToken` / `The SSO session has expired` | `aws sso login --profile <profile>` |
-| Docker build fails with `exec format error`, or there's no `linux/arm64` builder | `docker run --privileged --rm tonistiigi/binfmt --install arm64`, then `docker buildx create --use` |
+| `cdk deploy` fails while building an agent image | Read the CodeBuild log: CloudWatch Logs group `/aws/codebuild/<project>` named in the error, or the CodeBuild console. Usually a dependency in `agents/<name>/requirements.txt` without an arm64 wheel |
 | Preflight: `AccessDeniedException` for a model | Enable access to that model in the Bedrock console (**Model access**) for this region, or remove the alias from `deploy.yaml` |
 | Preflight: `alias has no price` | Add the alias to `config/pricing.yaml` |
 | Invocation error `model 'x' not allowed` | Add the alias to that agent's `models:` list and redeploy the agent stack |
