@@ -15,6 +15,9 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest>=8.3", "ruff>=0.8"]
 
+[project.scripts]
+invoke = "template_core.cli_invoke:main"
+
 [tool.uv.workspace]
 members = ["agents/_kit"]
 
