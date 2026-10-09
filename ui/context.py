@@ -64,7 +64,12 @@ def _cached_context(profile: str | None) -> Context:
 
 def get_context() -> Context:
     override = st.session_state.get(OVERRIDE_KEY)
-    return override if override is not None else _cached_context(parse_profile(sys.argv[1:]))
+    if override is not None:
+        return override
+    ctx = _cached_context(parse_profile(sys.argv[1:]))
+    if ctx.deployment is None:
+        _cached_context.clear()  # never cache a failed connection: the next rerun retries
+    return ctx
 
 
 def result_metrics(result: InvokeResult, prices: PriceTable) -> dict[str, str]:

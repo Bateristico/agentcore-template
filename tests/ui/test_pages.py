@@ -85,3 +85,63 @@ def test_benchmarks_history_lists_saved_run(ctx):
 def test_costs_page_explains_missing_access(ctx):
     at = run_page(PAGES / "pages" / "3_Costs.py", ctx)
     assert any("not readable" in w.value for w in at.warning)
+
+
+def _button(at, label):
+    return next(b for b in at.button if b.label == label)
+
+
+def _accept_box(at):
+    return next(c for c in at.checkbox if c.label.startswith("I accept"))
+
+
+def test_benchmarks_run_requires_acceptance_then_saves_run(ctx):
+    at = run_page(PAGES / "pages" / "2_Benchmarks.py", ctx)
+    assert _button(at, "Run benchmark").disabled
+    _accept_box(at).check().run()
+    assert not at.exception
+    assert not _button(at, "Run benchmark").disabled
+    _button(at, "Run benchmark").click().run()
+    assert not at.exception, at.exception
+    assert any(s.value.startswith("Run hello-agent-") and s.value.endswith("saved") for s in at.success)
+    saved = [m["run_id"] for m in ctx.store.list_runs()]
+    assert any(r.startswith("hello-agent-") for r in saved)
+
+
+def test_benchmarks_run_failure_is_shown_without_traceback(ctx):
+    class BoomStore:
+        def save(self, *a, **k):
+            raise RuntimeError("kaput")
+
+        def list_runs(self, limit=100):
+            return []
+
+    ctx.store = BoomStore()
+    at = run_page(PAGES / "pages" / "2_Benchmarks.py", ctx)
+    _accept_box(at).check().run()
+    _button(at, "Run benchmark").click().run()
+    assert not at.exception
+    assert any(e.value == "Benchmark failed: RuntimeError: kaput" for e in at.error)
+    assert not at.success
+
+
+def test_benchmarks_history_error_does_not_break_run_tab(ctx):
+    class BadStore:
+        def list_runs(self, limit=100):
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "nope"}}, "ListObjects")
+
+    ctx.store = BadStore()
+    at = run_page(PAGES / "pages" / "2_Benchmarks.py", ctx)
+    assert any("Could not list runs" in e.value for e in at.error)
+    assert any(b.label == "Run benchmark" for b in at.button)
+
+
+def test_costs_page_survives_cloudwatch_failure(ctx):
+    class BadCW:
+        def get_metric_data(self, **kwargs):
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "nope"}}, "GetMetricData")
+
+    ctx.cloudwatch = BadCW()
+    at = run_page(PAGES / "pages" / "3_Costs.py", ctx)
+    assert any("not readable" in e.value for e in at.error)
+    assert any("Billed" in s.value for s in at.subheader)

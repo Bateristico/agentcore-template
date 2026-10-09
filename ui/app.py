@@ -14,4 +14,7 @@ if ctx.deployment is None:
 else:
     st.success(f"{len(ctx.deployment.agents)} agents deployed; results bucket `{ctx.deployment.results_bucket}`")
     st.table([{"agent": n, "models": ", ".join(ctx.cfg.agents[n].models), "default": e.default_model} for n, e in ctx.deployment.agents.items()])
+if st.button("Reconnect to AWS"):
+    st.cache_resource.clear()
+    st.rerun()
 st.markdown("Use the pages on the left: **Playground** to chat, **Benchmarks** to compare models, **Costs** to see spend.")

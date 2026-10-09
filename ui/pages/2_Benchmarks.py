@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 import streamlit.components.v1 as components
+from botocore.exceptions import BotoCoreError, ClientError
 
 from bench.orchestrate import execute_run
 from bench.report import build_report, summary_table
@@ -10,6 +11,8 @@ from bench.runner import RunSpec, estimate_cost, new_run_id
 from bench.suite import list_suites, load_suite
 from template_core.pricing import PriceTable, format_usd
 from ui.context import get_context
+
+HISTORY_ERRORS = (ClientError, BotoCoreError, FileNotFoundError, KeyError, ValueError)
 
 st.set_page_config(page_title="Benchmarks", layout="wide")
 ctx = get_context()
@@ -54,13 +57,25 @@ with tab_run:
                             bar.progress(finished / total, text=f"{finished}/{total} calls")
                         except queue.Empty:
                             pass
-                    outcome = future.result()
-                st.success(f"Run {outcome.meta['run_id']} saved")
-                st.dataframe(summary_table(outcome.summaries), use_container_width=True)
-                st.download_button("Download report.html", outcome.html, file_name=f"{outcome.meta['run_id']}.html", mime="text/html")
+                    try:
+                        outcome = future.result()
+                    except Exception as exc:
+                        outcome = None
+                        st.error(f"Benchmark failed: {type(exc).__name__}: {exc}")
+                if outcome is not None:
+                    st.success(f"Run {outcome.meta['run_id']} saved")
+                    for line in outcome.locations:
+                        if line.startswith("WARNING"):
+                            st.warning(line)
+                    st.dataframe(summary_table(outcome.summaries), use_container_width=True)
+                    st.download_button("Download report.html", outcome.html, file_name=f"{outcome.meta['run_id']}.html", mime="text/html")
 
 with tab_history:
-    runs = ctx.store.list_runs()
+    try:
+        runs = ctx.store.list_runs()
+    except HISTORY_ERRORS as exc:
+        runs = []
+        st.error(f"Could not list runs: {exc}")
     if not runs:
         st.info("No benchmark runs yet.")
     else:
@@ -71,9 +86,13 @@ with tab_history:
         )
         run_id = st.selectbox("Open run", [m["run_id"] for m in runs], key="bm_history_run")
         reprice = st.toggle("Re-price with current pricing.yaml", value=False)
-        meta, rows = ctx.store.load(run_id)
-        prices = ctx.prices if reprice else PriceTable.model_validate(meta["pricing"])
-        html, summaries = build_report(meta, rows, prices, ctx.cfg, None, repriced=reprice)
-        st.dataframe(summary_table(summaries), use_container_width=True)
-        st.download_button("Download report.html", html, file_name=f"{run_id}.html", mime="text/html")
-        components.html(html, height=900, scrolling=True)
+        try:
+            meta, rows = ctx.store.load(run_id)
+            prices = ctx.prices if reprice else PriceTable.model_validate(meta["pricing"])
+            html, summaries = build_report(meta, rows, prices, ctx.cfg, None, repriced=reprice)
+        except HISTORY_ERRORS as exc:
+            st.error(f"Could not open run {run_id}: {type(exc).__name__}: {exc}")
+        else:
+            st.dataframe(summary_table(summaries), use_container_width=True)
+            st.download_button("Download report.html", html, file_name=f"{run_id}.html", mime="text/html")
+            components.html(html, height=900, scrolling=True)
