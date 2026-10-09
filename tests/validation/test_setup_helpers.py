@@ -2,8 +2,6 @@ import socket
 import types
 from decimal import Decimal
 
-import pytest
-
 from template_core.config import load_config
 from template_core.pricing import load_pricing
 from validation.cli import select_gates
@@ -17,7 +15,6 @@ def test_select_gates():
     assert select_gates("all", "g9")[-1] == "g9"
 
 
-@pytest.mark.skip(reason="g11 registered in Task 18")
 def test_select_single_gate_g11():
     assert select_gates("g11", None) == ["g11"]
 

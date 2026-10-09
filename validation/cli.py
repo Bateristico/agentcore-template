@@ -8,13 +8,8 @@ from datetime import UTC, datetime
 from template_core.config import DEFAULT_CONFIG, load_config
 from template_core.console import utf8_stdout
 from template_core.pricing import load_pricing
-from validation import gates_setup  # noqa: F401  (registers g0-g2)
+from validation import gates_bench, gates_deploy, gates_final, gates_setup  # noqa: F401  (register gates)
 from validation.framework import GATES, ORDER, VALIDATION_ROOT, GateContext, latest_state, run_gates
-
-try:  # later tasks add these modules
-    from validation import gates_bench, gates_deploy, gates_final  # noqa: F401
-except ImportError:  # pragma: no cover - only before Tasks 17-18 exist
-    pass
 
 
 def select_gates(gate: str, until: str | None) -> list[str]:
