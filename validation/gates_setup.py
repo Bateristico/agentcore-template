@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import socket
 import subprocess
 import time
 import urllib.error
@@ -14,7 +15,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from template_core.costs import cost_tag_state
 from template_core.pricing import format_usd
-from validation.framework import Check, GateContext, command_check, gate
+from validation.framework import Check, GateContext, command_check, gate, kill_tree
 from validation.spend import validation_spend_estimate
 
 SMOKE_PROMPT = "Reply with the single word: pong"
@@ -74,6 +75,12 @@ def g1(ctx: GateContext) -> list[Check]:
     ]
 
 
+def port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(1)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
 def wait_for_ping(port: int, timeout: float) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -110,6 +117,9 @@ def g2(ctx: GateContext) -> list[Check]:
         if ctx.profile:
             env["AWS_PROFILE"] = ctx.profile
         log_path = ctx.out_dir / f"g2-{name}.log"
+        if port_in_use(port):
+            checks.append(Check(f"{name}: server starts", False, f"port {port} already in use"))
+            continue
         with open(log_path, "w", encoding="utf-8") as log:
             proc = subprocess.Popen(
                 [shutil.which("uv") or "uv", "run", "--with-requirements", str(folder / "requirements.txt"), "python", "-m", "agentkit.server"],
@@ -129,7 +139,7 @@ def g2(ctx: GateContext) -> list[Check]:
             except (urllib.error.URLError, OSError, ValueError) as exc:
                 checks.append(Check(f"{name}: local /invocations", False, f"{type(exc).__name__}: {exc}; see {log_path}"))
             finally:
-                proc.terminate()
+                kill_tree(proc.pid)
                 try:
                     proc.wait(timeout=15)
                 except subprocess.TimeoutExpired:

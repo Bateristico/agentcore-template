@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import signal
 import subprocess
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -18,6 +20,20 @@ from template_core.pricing import PriceTable
 
 VALIDATION_ROOT = REPO_ROOT / "validation"
 ORDER = ["g0", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9", "g10"]  # g11 runs on its own, 24-48 h later
+
+
+def kill_tree(pid: int) -> None:
+    """Kill a process and all its children (uv spawns the real server as a child)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+        return
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    except OSError:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
 
 
 @dataclass
@@ -62,22 +78,35 @@ class GateContext:
         return self.session.client(name, region_name=region or self.cfg.region)
 
     def confirm(self, question: str) -> bool:
-        return self.yes or input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+        if self.yes:
+            return True
+        try:
+            return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+        except EOFError:
+            print("no TTY: pass --yes")
+            return False
 
     def run(self, cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = None, timeout: int = 3600) -> subprocess.CompletedProcess:
         exe = shutil.which(cmd[0]) or cmd[0]  # resolves npx.cmd / uv.exe on Windows
-        return subprocess.run(
-            [exe, *cmd[1:]], cwd=cwd or self.repo_root, env=env, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=timeout,
+        proc = subprocess.Popen(
+            [exe, *cmd[1:]], cwd=cwd or self.repo_root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
         )
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_tree(proc.pid)
+            out, err = proc.communicate()
+            return subprocess.CompletedProcess(cmd, -1, out or "", (err or "") + f"\ntimed out after {timeout} s")
+        return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
-    def cdk(self, *args: str, context: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    def cdk(self, *args: str, context: dict[str, str] | None = None, timeout: int = 3600) -> subprocess.CompletedProcess:
         cmd = ["npx", "cdk", *args]
         for key, value in (context or {}).items():
             cmd += ["-c", f"{key}={value}"]
         if self.profile:
             cmd += ["--profile", self.profile]
-        return self.run(cmd, cwd=self.repo_root / "infra")
+        return self.run(cmd, cwd=self.repo_root / "infra", timeout=timeout)
 
     def save_state(self) -> None:
         self.out_dir.mkdir(parents=True, exist_ok=True)
@@ -150,8 +179,14 @@ def run_gates(ids: list[str], ctx: GateContext, echo: Callable[[str], Any] = pri
     return results
 
 
-def latest_state(root: Path = VALIDATION_ROOT) -> dict[str, Any]:
+def latest_state(root: Path = VALIDATION_ROOT, profile: str | None = None, region: str | None = None,
+                 prefix: str | None = None) -> dict[str, Any]:
+    """Newest state.json whose profile/region/prefix match (states from other targets are ignored)."""
     if not root.is_dir():
         return {}
-    runs = sorted((p for p in root.iterdir() if (p / "state.json").exists()), key=lambda p: p.name)
-    return json.loads((runs[-1] / "state.json").read_text(encoding="utf-8")) if runs else {}
+    want = {"profile": profile, "region": region, "prefix": prefix}
+    for run in sorted((p for p in root.iterdir() if (p / "state.json").exists()), key=lambda p: p.name, reverse=True):
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        if all(state.get(k) == v for k, v in want.items()):
+            return state
+    return {}

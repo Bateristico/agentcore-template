@@ -3,6 +3,8 @@ import subprocess
 
 import pytest
 
+from validation import framework
+
 from template_core.config import load_config
 from template_core.pricing import load_pricing
 from validation.framework import (
@@ -74,6 +76,50 @@ def test_latest_state_picks_newest(tmp_path):
         (tmp_path / name / "state.json").write_text(json.dumps({"v": value}))
     assert latest_state(tmp_path) == {"v": 2}
     assert latest_state(tmp_path / "missing") == {}
+
+
+def test_latest_state_ignores_other_profile_region_prefix(tmp_path):
+    def put(name, **kw):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "state.json").write_text(json.dumps(kw))
+
+    put("20261001T000000Z", profile="p", region="r", prefix="a", v=1)
+    put("20261009T000000Z", profile="p", region="r", prefix="b", v=2)
+    assert latest_state(tmp_path, "p", "r", "a")["v"] == 1
+    assert latest_state(tmp_path, "p", "r", "b")["v"] == 2
+    assert latest_state(tmp_path, "p", "x", "a") == {}
+
+
+def test_run_kills_process_tree_on_timeout(ctx, monkeypatch):
+    killed = []
+
+    class FakeProc:
+        pid = 4242
+        returncode = None
+
+        def __init__(self, *a, **kw):
+            self.calls = 0
+
+        def communicate(self, timeout=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise subprocess.TimeoutExpired("x", timeout)
+            return "partial", ""
+
+    monkeypatch.setattr(framework.subprocess, "Popen", FakeProc)
+    monkeypatch.setattr(framework, "kill_tree", killed.append)
+    proc = ctx.run(["python", "-c", "pass"], timeout=1)
+    assert killed == [4242] and proc.returncode == -1 and "timed out" in proc.stderr
+
+
+def test_confirm_without_tty_is_false(tmp_path, monkeypatch, capsys):
+    c = GateContext(load_config(), load_pricing(), None, False, tmp_path)
+
+    def eof(_):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    assert c.confirm("ok?") is False and "pass --yes" in capsys.readouterr().out
 
 
 def test_helpers():

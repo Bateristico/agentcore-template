@@ -37,7 +37,11 @@ def main(argv: list[str] | None = None) -> int:
 
     ids = select_gates(args.gate, args.until)
     out_dir = VALIDATION_ROOT / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    ctx = GateContext(load_config(args.config), load_pricing(), args.profile, args.yes, out_dir, state=latest_state())
+    cfg = load_config(args.config)
+    profile = args.profile or "default"
+    state = latest_state(VALIDATION_ROOT, profile, cfg.region, cfg.prefix)
+    state.update({"profile": profile, "region": cfg.region, "prefix": cfg.prefix})
+    ctx = GateContext(cfg, load_pricing(), args.profile, args.yes, out_dir, state=state)
     results = run_gates(ids, ctx)
     print(f"evidence: {out_dir}")
     return 0 if len(results) == len(ids) and all(r.passed for r in results) else 1

@@ -1,3 +1,4 @@
+import socket
 from decimal import Decimal
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from template_core.config import load_config
 from template_core.pricing import load_pricing
 from validation.cli import select_gates
+from validation.gates_setup import port_in_use
 from validation.spend import g7_spec, scale_prices, validation_spend_estimate
 
 
@@ -30,3 +32,10 @@ def test_spend_estimate_is_under_budget_and_scaling_doubles():
     assert Decimal(0) < validation_spend_estimate(cfg, prices) < Decimal(5)
     doubled = scale_prices(prices, 2)
     assert doubled.models["haiku-4-5"].input == prices.models["haiku-4-5"].input * 2
+
+
+def test_port_in_use_detects_listener():
+    with socket.socket() as srv:
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        assert port_in_use(srv.getsockname()[1])
