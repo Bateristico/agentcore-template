@@ -5,11 +5,12 @@ from __future__ import annotations
 import os
 import re
 import time
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Mapping
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from template_core.config import load_config
-from template_core.costs import ReconRow, billed_costs, live_costs, reconcile
+from template_core.costs import ReconRow, billed_costs, completed_days_window, live_costs, reconcile
 from template_core.deployment import DeploymentNotFound, load_deployment
 from template_core.pricing import format_usd
 from validation.framework import Check, GateContext, command_check, gate
@@ -93,6 +94,9 @@ def g11_checks(rows: list[ReconRow], cfg, message: str = "") -> list[Check]:
                                 f"estimate {format_usd(r.estimate)} billed {format_usd(r.billed)} delta {r.delta_pct:+.1f}%"))
         elif cfg.models[r.model].billing_tag and r.estimate and r.billed is None:
             checks.append(Check(f"{name}: no billed data for taggable pair", False, f"estimate {format_usd(r.estimate)}, {r.note}"))
+        elif cfg.models[r.model].billing_tag and r.estimate == 0 and r.billed:
+            checks.append(Check(f"{name}: billed without metered usage", False,
+                                f"billed {format_usd(r.billed)} but the kit metered no tokens ({r.note})"))
         else:
             checks.append(Check(name, True, f"not compared: {r.note}"))
     checks.append(Check("at least one pair compared", compared > 0, f"{compared} compared"))
@@ -101,13 +105,24 @@ def g11_checks(rows: list[ReconRow], cfg, message: str = "") -> list[Check]:
     return checks
 
 
-def g11_window(today: date) -> tuple[date, date, datetime, datetime]:
-    """Three whole completed UTC days ending at midnight UTC today (exclusive), as scripts/reconcile_costs.py."""
-    end_day = today
-    start_day = end_day - timedelta(days=3)
-    start = datetime(start_day.year, start_day.month, start_day.day, tzinfo=UTC)
-    end = datetime(end_day.year, end_day.month, end_day.day, tzinfo=UTC)
-    return start_day, end_day, start, end
+G11_DAYS_ENV = "TMPL_G11_DAYS"
+
+
+def g11_days(env: Mapping[str, str] = os.environ) -> int:
+    """Window length for G11 in whole days: TMPL_G11_DAYS, default 3."""
+    raw = env.get(G11_DAYS_ENV) or "3"
+    try:
+        days = int(raw)
+    except ValueError:
+        days = 0
+    if days < 1:
+        raise ValueError(f"{G11_DAYS_ENV} must be a positive whole number of days, got {raw!r}")
+    return days
+
+
+def g11_window(today: date, days: int = 3) -> tuple[date, date, datetime, datetime]:
+    """`days` whole completed UTC days ending at midnight UTC today (exclusive), as scripts/reconcile_costs.py."""
+    return completed_days_window(today, days)
 
 
 def _account(ctx: GateContext) -> str:
@@ -133,10 +148,10 @@ def g9(ctx: GateContext) -> list[Check]:
     account = _account(ctx)
     if not ctx.confirm(f"Deploy a temporary second copy '{prefix2}' into account {account} ({ctx.cfg.region})?"):
         return [*checks, Check("second copy deploy confirmed", False, "declined")]
+    ctx.state["second_prefix"] = prefix2  # recorded before deploying: G10 then cleans up even a partial deploy
     deploy = ctx.cdk("deploy", "--all", "--require-approval", "never", context={"prefix": prefix2, "removal": "destroy"})
     checks.append(command_check(f"deploy a second copy with prefix '{prefix2}'", deploy))
     if deploy.returncode == 0:
-        ctx.state["second_prefix"] = prefix2
         matrix, _ = matrix_checks(load_config(prefix=prefix2, removal="destroy"), ctx.session, label=f"{prefix2}: ")
         checks += matrix
 
@@ -189,7 +204,7 @@ def g10(ctx: GateContext) -> list[Check]:
 
 @gate("g11", "Billing reconciliation")
 def g11(ctx: GateContext) -> list[Check]:
-    start_day, end_day, start, end = g11_window(datetime.now(UTC).date())
+    start_day, end_day, start, end = g11_window(datetime.now(UTC).date(), g11_days())
     live = live_costs(ctx.client("cloudwatch"), ctx.cfg, ctx.prices, start, end)
     billed = billed_costs(ctx.client("ce", "us-east-1"), ctx.cfg, start_day, end_day)
     checks = [Check("billed data available", billed.status == "ok", billed.message)]

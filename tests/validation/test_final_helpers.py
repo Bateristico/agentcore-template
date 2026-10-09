@@ -1,11 +1,16 @@
+import subprocess
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
 
 from template_core.config import load_config
 from template_core.costs import ReconRow
 from validation.gates_final import (
     existing_stacks,
+    g9,
     g11_checks,
+    g11_days,
     g11_window,
     scan_for_account,
     second_prefix,
@@ -54,7 +59,21 @@ def test_g11_window_is_three_whole_completed_utc_days():
     assert end == datetime(2026, 10, 9, tzinfo=UTC)
 
 
+def test_g11_window_day_count_override():
+    start_day, end_day, _, _ = g11_window(date(2026, 10, 9), days=5)
+    assert (start_day, end_day) == (date(2026, 10, 4), date(2026, 10, 9))
 
+
+def test_g11_days_from_env():
+    assert g11_days({}) == 3
+    assert g11_days({"TMPL_G11_DAYS": "7"}) == 7
+    for bad in ("0", "-1", "x"):
+        try:
+            g11_days({"TMPL_G11_DAYS": bad})
+        except ValueError as exc:
+            assert "TMPL_G11_DAYS" in str(exc)
+        else:
+            raise AssertionError(f"accepted {bad!r}")
 
 
 def test_split_leftovers_matches_only_expected_bucket_any_partition():
@@ -82,6 +101,40 @@ def test_prefix_collision():
     assert second_prefix_problem("tmpl", "tmpl2") is None
 
 
+class FakeG9Ctx:
+    """Just enough GateContext for g9: synth passes, the second-copy deploy fails part-way."""
+
+    def __init__(self):
+        self.cfg = load_config()
+        self.repo_root = Path(__file__).resolve().parents[2]
+        self.state = {"account": "123456789012"}
+        self.state_at_deploy = None
+
+    def run(self, cmd, cwd=None, env=None, timeout=3600):
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def client(self, name, region=None):
+        assert name == "cloudformation"
+        return SimpleNamespace(list_stacks=lambda **kw: {"StackSummaries": []})
+
+    def confirm(self, question):
+        return True
+
+    def cdk(self, *args, context=None, timeout=3600):
+        self.state_at_deploy = dict(self.state)
+        return subprocess.CompletedProcess(args, 1, "", "partial failure: tmpl2-agent-x CREATE_FAILED")
+
+
+def test_g9_records_second_prefix_before_deploying_so_g10_cleans_partial_failures(monkeypatch):
+    monkeypatch.setattr("validation.gates_final.scan_for_account", lambda root, account: [])
+    ctx = FakeG9Ctx()
+    checks = g9(ctx)
+    prefix2 = second_prefix(ctx.cfg.prefix)
+    assert ctx.state_at_deploy["second_prefix"] == prefix2
+    assert ctx.state["second_prefix"] == prefix2
+    assert any(not c.ok and "deploy a second copy" in c.name for c in checks)
+
+
 def _row(model, estimate, billed, within, note=""):
     return ReconRow("tools-agent", model, estimate, billed, None if within is None else 0.0, within, note)
 
@@ -100,3 +153,15 @@ def test_g11_checks_mapping():
         assert all(c.ok for c in info)
     warned = g11_checks([_row(taggable, Decimal("1"), Decimal("1"), True)], cfg, "x Warning: tags")
     assert any(c.warning and not c.ok for c in warned)
+
+
+def test_g11_checks_fail_billed_without_metered_usage():
+    cfg = load_config()
+    taggable = next(m for m, v in cfg.models.items() if v.billing_tag)
+    rows = [
+        _row(taggable, Decimal("0"), Decimal("0.40"), None, "billed cost without metered usage"),
+        _row(taggable, Decimal("1"), Decimal("1"), True),
+    ]
+    checks = g11_checks(rows, cfg)
+    bad = [c for c in checks if not c.ok]
+    assert len(bad) == 1 and "billed without metered usage" in bad[0].name and not bad[0].warning
