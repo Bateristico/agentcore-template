@@ -11,11 +11,13 @@ from pathlib import Path
 
 import boto3
 
+from template_core.console import utf8_stdout
 from template_core.config import DEFAULT_CONFIG, load_config
 from template_core.probe import format_probe_table, probe_model
 
 
 def main() -> int:
+    utf8_stdout()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--profile", help="AWS CLI profile")
     ap.add_argument("--config", default=str(DEFAULT_CONFIG))

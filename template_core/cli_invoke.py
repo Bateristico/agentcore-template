@@ -9,6 +9,7 @@ import sys
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 
+from template_core.console import utf8_stdout
 from template_core.agentcore import AgentClient, InvokeResult
 from template_core.config import DEFAULT_CONFIG, ConfigError, load_config
 from template_core.deployment import DeploymentNotFound, load_deployment
@@ -34,6 +35,7 @@ def format_result(result: InvokeResult, prices: PriceTable) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    utf8_stdout()
     ap = argparse.ArgumentParser(prog="invoke", description="Call a deployed agent once and show usage and cost")
     ap.add_argument("--agent", required=True)
     ap.add_argument("--prompt", required=True)

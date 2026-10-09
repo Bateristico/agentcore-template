@@ -12,12 +12,14 @@ from pathlib import Path
 
 import boto3
 
+from template_core.console import utf8_stdout
 from template_core.config import load_config
 from template_core.price_list import apply_prices, compare_prices
 from template_core.pricing import DEFAULT_PRICING, dump_pricing, load_pricing
 
 
 def main() -> int:
+    utf8_stdout()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--profile")
     ap.add_argument("--region", help="pricing region (default: deploy.yaml region)")

@@ -10,12 +10,14 @@ from datetime import UTC, datetime, timedelta
 
 import boto3
 
+from template_core.console import utf8_stdout
 from template_core.config import load_config
 from template_core.costs import billed_costs, live_costs, reconcile
 from template_core.pricing import format_usd, load_pricing
 
 
 def main() -> int:
+    utf8_stdout()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--days", type=int, default=7, help="whole UTC days, ending today (inclusive)")
     ap.add_argument("--profile")
