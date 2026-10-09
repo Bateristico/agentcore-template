@@ -65,6 +65,11 @@ test('dashboard has the spec name and prices baked into metric math', () => {
   expect(body).toContain('tools-agent');
 });
 
+test('dashboard metrics are scoped to this deployment by the Project dimension', () => {
+  const body = JSON.stringify(synth('retain').findResources('AWS::CloudWatch::Dashboard')).replace(/\\/g, '');
+  expect(body).toContain('"Agent","tools-agent","Model","m1","Project","t1"');
+});
+
 test('outputs consumed by the Python tooling exist', () => {
   const t = synth('retain');
   for (const key of ['ResultsBucketName', 'JudgeProfileArn', 'JudgeModel']) t.hasOutput(key, {});

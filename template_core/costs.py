@@ -28,6 +28,11 @@ def _dims(**kv: str) -> list[dict[str, str]]:
     return [{"Name": k, "Value": v} for k, v in kv.items()]
 
 
+def emf_dimensions(project: str, agent: str, model: str) -> list[dict[str, str]]:
+    """Dimensions of the kit's EMF series for one deployment (Project = deploy prefix)."""
+    return _dims(Project=project, Agent=agent, Model=model)
+
+
 def _period(start: datetime, end: datetime) -> int:
     return 60 if end - start <= timedelta(hours=3) else 3600
 
@@ -74,7 +79,7 @@ def live_costs(cw, cfg: DeployConfig, prices: PriceTable, start: datetime, end: 
             for metric in [*TOKEN_METRICS, "Errors"]:
                 qid = f"q{len(queries)}"
                 index[qid] = (agent, model, metric)
-                queries[qid] = {"Namespace": NAMESPACE, "MetricName": metric, "Dimensions": _dims(Agent=agent, Model=model)}
+                queries[qid] = {"Namespace": NAMESPACE, "MetricName": metric, "Dimensions": emf_dimensions(cfg.prefix, agent, model)}
     sums = sum_metrics(cw, queries, start, end)
     totals: dict[tuple[str, str], dict[str, int]] = {}
     for qid, (agent, model, metric) in index.items():

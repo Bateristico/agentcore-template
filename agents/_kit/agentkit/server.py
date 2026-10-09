@@ -15,7 +15,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from agentkit.metering import emf_record, emit, usage_from_metrics
+from agentkit.metering import DEFAULT_PROJECT, emf_record, emit, usage_from_metrics
 from agentkit.models import KitConfigError, ModelNotAllowed, make_bedrock_model, resolve_model
 
 BuildAgent = Callable[[Any], Any]
@@ -75,6 +75,7 @@ def handle(
             agent_name,
             usage,
             errors=1 if error else 0,
+            project=env.get("PROJECT") or DEFAULT_PROJECT,  # deployment prefix, injected by CDK
             run_id=payload.get("run_id"),
             case_id=payload.get("case_id"),
             session_id=session_id,

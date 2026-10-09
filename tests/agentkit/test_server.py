@@ -43,7 +43,7 @@ class FailingAgent:
         raise RuntimeError("ThrottlingException: slow down")
 
 
-def run(payload, *, fail=False, built=None):
+def run(payload, *, fail=False, built=None, env=ENV):
     lines = []
 
     def build_agent(model):
@@ -56,7 +56,7 @@ def run(payload, *, fail=False, built=None):
         build_agent=build_agent,
         agent_name="tools-agent",
         session_id="s" * 40,
-        env=ENV,
+        env=env,
         model_factory=lambda choice: choice,
         write=lines.append,
         clock=iter([1.0, 1.25]).__next__,
@@ -74,6 +74,13 @@ def test_success_returns_output_usage_and_emits_emf():
     }
     assert built[0].model_id == "id-2"
     assert len(emf) == 1 and emf[0]["Errors"] == 0 and emf[0]["Model"] == "m2" and emf[0]["run_id"] == "r1"
+
+
+def test_emf_carries_project_from_env_or_default():
+    _, emf = run({"prompt": "hi"}, env={**ENV, "PROJECT": "tmpl2"})
+    assert emf[0]["Project"] == "tmpl2" and emf[0]["Agent"] == "tools-agent"
+    _, emf = run({"prompt": "hi"})
+    assert emf[0]["Project"] == "default"
 
 
 def test_default_model_when_not_requested():

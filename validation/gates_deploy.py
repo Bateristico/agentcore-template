@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from agentkit.metering import NAMESPACE
 from template_core.agentcore import AgentClient
 from template_core.config import DeployConfig
-from template_core.costs import sum_metrics
+from template_core.costs import emf_dimensions, sum_metrics
 from template_core.deployment import load_deployment
 from validation.framework import Check, GateContext, command_check, gate, within
 
@@ -144,7 +144,7 @@ def g5(ctx: GateContext) -> list[Check]:
         for key, arn in window["profiles"].items():
             agent, model = key.split("|")
             ours = _sums(cw, NAMESPACE, {"in": "InputTokens", "out": "OutputTokens"},
-                         [{"Name": "Agent", "Value": agent}, {"Name": "Model", "Value": model}], start, end)
+                         emf_dimensions(ctx.cfg.prefix, agent, model), start, end)
             theirs = _sums(cw, "AWS/Bedrock", {"in": "InputTokenCount", "out": "OutputTokenCount"},
                            [{"Name": "ModelId", "Value": arn if use_arn else arn.rsplit("/", 1)[-1]}], start, end)
             for k in ("in", "out"):

@@ -38,15 +38,21 @@ def test_usage_round_trip_and_addition():
 
 def test_emf_record_shape():
     u = Usage("haiku-4-5", 10, 5, 0, 0, 100, 1, 0)
-    rec = emf_record("tools-agent", u, errors=1, run_id="r1", case_id="c1", session_id="s1", timestamp_ms=1700000000000)
+    rec = emf_record(
+        "tools-agent", u, project="tmpl", errors=1, run_id="r1", case_id="c1", session_id="s1", timestamp_ms=1700000000000
+    )
     directive = rec["_aws"]["CloudWatchMetrics"][0]
     assert rec["_aws"]["Timestamp"] == 1700000000000
     assert directive["Namespace"] == NAMESPACE
-    assert directive["Dimensions"] == [["Agent", "Model"]]
+    assert directive["Dimensions"] == [["Project", "Agent", "Model"]]
     assert {m["Name"] for m in directive["Metrics"]} == set(METRIC_UNITS)
-    assert rec["Agent"] == "tools-agent" and rec["Model"] == "haiku-4-5"
+    assert rec["Project"] == "tmpl" and rec["Agent"] == "tools-agent" and rec["Model"] == "haiku-4-5"
     assert rec["InputTokens"] == 10 and rec["Errors"] == 1
     assert rec["run_id"] == "r1" and rec["case_id"] == "c1" and rec["session_id"] == "s1"
+
+
+def test_emf_record_project_defaults_when_unset():  # local runs (G2) have no PROJECT env var
+    assert emf_record("a", Usage("m"), errors=0)["Project"] == "default"
 
 
 def test_emit_writes_one_json_line():

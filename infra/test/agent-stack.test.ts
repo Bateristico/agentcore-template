@@ -34,7 +34,7 @@ test('one runtime with the spec name, env vars and tags', () => {
   template.resourceCountIs('AWS::BedrockAgentCore::Runtime', 1);
   template.hasResourceProperties('AWS::BedrockAgentCore::Runtime', {
     AgentRuntimeName: 't1_tools_agent',
-    EnvironmentVariables: Match.objectLike({ AGENT_NAME: 'tools-agent', DEFAULT_MODEL: 'm1' }),
+    EnvironmentVariables: Match.objectLike({ AGENT_NAME: 'tools-agent', DEFAULT_MODEL: 'm1', PROJECT: 't1' }),
     Tags: Match.objectLike({ project: 't1', agent: 'tools-agent' }),
   });
 });

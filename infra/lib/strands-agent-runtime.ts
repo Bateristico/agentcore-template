@@ -71,6 +71,7 @@ export class StrandsAgentRuntime extends Construct {
       agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromEcrRepository(repository, image.imageTag),
       environmentVariables: {
         AGENT_NAME: agentName,
+        PROJECT: config.prefix, // EMF Project dimension: separates copies of the template in one account
         DEFAULT_MODEL: agentCfg.default,
         MODEL_PROFILES: stack.toJsonString(this.modelProfiles),
       },

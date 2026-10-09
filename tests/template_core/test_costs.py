@@ -9,6 +9,7 @@ from template_core.costs import (
     agentcore_window_cost,
     billed_costs,
     cost_tag_state,
+    emf_dimensions,
     live_costs,
     reconcile,
 )
@@ -49,8 +50,20 @@ class FakeCW:
         return {"MetricDataResults": results}
 
 
-def emf(metric, model, values):
-    return ("AgentTemplate", metric, frozenset({("Agent", "a"), ("Model", model)})), values
+def emf(metric, model, values, project="t1"):
+    return ("AgentTemplate", metric, frozenset({("Project", project), ("Agent", "a"), ("Model", model)})), values
+
+
+def test_emf_dimensions_include_project():
+    assert emf_dimensions("t1", "a", "m1") == [
+        {"Name": "Project", "Value": "t1"}, {"Name": "Agent", "Value": "a"}, {"Name": "Model", "Value": "m1"},
+    ]
+
+
+def test_live_costs_ignore_other_deployments_series():  # a second copy (tmpl2) writes the same Agent/Model
+    cw = FakeCW(dict([emf("InputTokens", "m1", [1_000_000], project="t2")]))
+    rows = {(r.agent, r.model): r for r in live_costs(cw, CFG, PRICES, START, END)}
+    assert rows[("a", "m1")].usage.input_tokens == 0
 
 
 def test_live_costs_sum_tokens_and_price_them():

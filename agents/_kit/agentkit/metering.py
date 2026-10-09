@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, fields
 from typing import Any
 
 NAMESPACE = "AgentTemplate"
+DEFAULT_PROJECT = "default"  # Project dimension when PROJECT is unset (local runs)
 METRIC_UNITS = {
     "InputTokens": "Count",
     "OutputTokens": "Count",
@@ -65,6 +66,7 @@ def emf_record(
     usage: Usage,
     *,
     errors: int,
+    project: str = DEFAULT_PROJECT,
     run_id: str | None = None,
     case_id: str | None = None,
     session_id: str | None = None,
@@ -76,11 +78,12 @@ def emf_record(
             "CloudWatchMetrics": [
                 {
                     "Namespace": NAMESPACE,
-                    "Dimensions": [["Agent", "Model"]],
+                    "Dimensions": [["Project", "Agent", "Model"]],
                     "Metrics": [{"Name": name, "Unit": unit} for name, unit in METRIC_UNITS.items()],
                 }
             ],
         },
+        "Project": project,
         "Agent": agent,
         "Model": usage.model,
         "InputTokens": usage.input_tokens,
