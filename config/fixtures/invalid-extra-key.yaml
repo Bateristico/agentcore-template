@@ -1,0 +1,10 @@
+# expect: modles
+prefix: t1
+region: eu-west-1
+modles:
+  m1: { profile: eu.amazon.nova-pro-v1:0 }
+models:
+  m1: { profile: eu.amazon.nova-pro-v1:0 }
+judge: m1
+agents:
+  a: { models: [m1], default: m1 }

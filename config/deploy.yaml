@@ -1,0 +1,18 @@
+# What gets deployed where. See README §3.
+prefix: tmpl
+region: eu-central-1
+# account: "123456789012"     # optional pin; deploys then refuse any other account
+removal: retain               # retain | destroy (results bucket on teardown)
+
+models:                       # alias -> Bedrock system inference profile
+  haiku-4-5:        { profile: eu.anthropic.claude-haiku-4-5-20251001-v1:0 }
+  haiku-4-5-global: { profile: global.anthropic.claude-haiku-4-5-20251001-v1:0 }
+  sonnet-4-6:       { profile: eu.anthropic.claude-sonnet-4-6 }
+  nova-2-lite:      { profile: eu.amazon.nova-2-lite-v1:0 }
+  nova-pro:         { profile: eu.amazon.nova-pro-v1:0 }
+
+judge: sonnet-4-6
+
+agents:
+  hello-agent: { models: [haiku-4-5, nova-2-lite, nova-pro], default: haiku-4-5 }
+  tools-agent: { models: [haiku-4-5, haiku-4-5-global, sonnet-4-6, nova-pro], default: haiku-4-5 }

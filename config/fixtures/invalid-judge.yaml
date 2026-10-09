@@ -1,0 +1,8 @@
+# expect: judge 'nope' is not a defined model alias
+prefix: t1
+region: eu-west-1
+models:
+  m1: { profile: eu.amazon.nova-pro-v1:0 }
+judge: nope
+agents:
+  a: { models: [m1], default: m1 }
