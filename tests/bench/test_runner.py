@@ -99,3 +99,27 @@ def test_on_row_called_for_every_row_and_rows_round_trip():
     rows = run_benchmark(spec(), lambda t, r: ok(t), on_row=on_row)
     assert len(seen) == 4
     assert Row.from_dict(rows[0].to_dict()) == rows[0]
+
+
+def test_judge_exception_keeps_invoke_data():
+    def grade(case, response):
+        raise RuntimeError("judge down")
+
+    rows = run_benchmark(spec(repeats=1), lambda t, r: ok(t), grade=grade)
+    for row in rows:
+        assert row.output == "answer" and row.usage is not None and row.session_id == "s" * 40
+        assert row.error is None and row.score is None
+        assert "RuntimeError" in row.judge_error
+
+
+def test_tokens_from_throttled_attempts_are_counted():
+    attempts = iter([
+        InvokeResult("a", "m1", "s" * 40, None, Usage("m1", 100, 5, latency_ms=50), {"type": "ModelThrottledException", "message": "slow"}, 50),
+        InvokeResult("a", "m1", "s" * 40, "answer", Usage("m1", 200, 10, latency_ms=300), None, 250),
+    ])
+    one_case = Suite(suite="s", cases=[Case(id="c1", prompt="p1")])
+    rs = RunSpec(run_id="r1", agent="a", suite=one_case, models=["m1"], repeats=1, concurrency=1)
+    rows = run_benchmark(rs, lambda t, r: next(attempts), sleep=lambda s: None)
+    row = rows[0]
+    assert row.attempts == 2 and row.error is None
+    assert row.usage["input_tokens"] == 300 and row.usage["output_tokens"] == 15 and row.usage["latency_ms"] == 300

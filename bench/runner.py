@@ -7,7 +7,7 @@ import secrets
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -51,6 +51,18 @@ def estimate_cost(spec: RunSpec, prices: PriceTable, judge_alias: str | None) ->
     return total
 
 
+def _merge_usage(billed: list[Usage], final: Usage | None) -> Usage:
+    """Token counts summed over every attempt; latency, cycles and tool calls from the final attempt only."""
+    total = billed[0]
+    for usage in billed[1:]:
+        total = total + usage
+    model = final.model if final is not None else billed[-1].model
+    last = final or Usage(model=model)
+    return replace(
+        total, model=model, latency_ms=last.latency_ms, cycles=last.cycles, tool_calls=last.tool_calls,
+    )
+
+
 def _backoff(attempt: int) -> float:
     return min(30.0, 2.0**attempt) + random.uniform(0, 1)
 
@@ -64,10 +76,13 @@ def run_benchmark(
 ) -> list[Row]:
     def one(task: Task) -> Row:
         attempts = 0
+        billed: list[Usage] = []
         try:
             while True:
                 attempts += 1
                 result = invoke(task, spec.run_id)
+                if result.usage is not None:
+                    billed.append(result.usage)
                 if result.throttled and attempts < spec.max_attempts:
                     sleep(_backoff(attempts))
                     continue
@@ -75,13 +90,17 @@ def run_benchmark(
             row = Row(
                 run_id=spec.run_id, agent=spec.agent, model=task.model, case_id=task.case.id, repeat=task.repeat,
                 session_id=result.session_id, output=result.output,
-                usage=result.usage.to_dict() if result.usage else None, error=result.error,
+                usage=_merge_usage(billed, result.usage).to_dict() if billed else None, error=result.error,
                 client_latency_ms=result.client_latency_ms, attempts=attempts,
             )
             if grade is not None and result.ok:
-                verdict = grade(task.case, result.output)
-                row.score, row.reason, row.judge_error = verdict.score, verdict.reason, verdict.error
-                row.judge_usage = verdict.usage.to_dict() if verdict.usage else None
+                try:
+                    verdict = grade(task.case, result.output)
+                except Exception as exc:  # noqa: BLE001 - a judge failure must not discard the invoke data
+                    row.judge_error = f"{type(exc).__name__}: {exc}"
+                else:
+                    row.score, row.reason, row.judge_error = verdict.score, verdict.reason, verdict.error
+                    row.judge_usage = verdict.usage.to_dict() if verdict.usage else None
         except Exception as exc:  # noqa: BLE001 - failures are recorded as rows, never abort the run (spec §5)
             row = Row(
                 run_id=spec.run_id, agent=spec.agent, model=task.model, case_id=task.case.id, repeat=task.repeat,
