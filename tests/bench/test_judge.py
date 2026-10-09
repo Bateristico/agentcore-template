@@ -73,6 +73,23 @@ def test_retry_succeeds_on_second_attempt():
     assert v.score == 3 and v.error is None and len(rt.calls) == 2
 
 
+def test_response_without_output_is_unparseable_not_an_exception():
+    odd = {"usage": {"inputTokens": 10, "outputTokens": 1}}
+    v = Judge("j", "arn:judge", FakeRuntime([odd, odd])).grade(CASE, "4")
+    assert v.score is None and "unparseable" in v.error
+
+
+def test_parse_verdict_skips_non_score_objects_before_the_verdict():
+    assert parse_verdict('{"score": 4, "reason": "ok"} (see {note})') == (4, "ok")
+
+
+def test_empty_response_is_sent_as_empty_block():
+    rt = FakeRuntime([converse_response('{"score": 1, "reason": "empty"}')])
+    Judge("j", "arn:judge", rt).grade(CASE, "")
+    assert len(rt.calls) == 1
+    assert "<response>\n\n</response>" in rt.calls[0]["messages"][0]["content"][0]["text"]
+
+
 def test_client_error_is_a_judge_error():
     err = ClientError({"Error": {"Code": "ThrottlingException", "Message": "slow"}}, "Converse")
     v = Judge("j", "arn:judge", FakeRuntime([err])).grade(CASE, "4")
@@ -95,3 +112,19 @@ agents:
     )
     warnings = bias_warnings(cfg, "sonnet", ["haiku", "nova", "gone"])
     assert len(warnings) == 1 and "haiku" in warnings[0] and "anthropic" in warnings[0]
+
+
+def test_bias_warning_when_judge_is_also_a_candidate():
+    cfg = parse_config(
+        """
+prefix: t1
+region: eu-central-1
+models:
+  sonnet: { profile: eu.anthropic.claude-sonnet-4-6 }
+judge: sonnet
+agents:
+  a: { models: [sonnet], default: sonnet }
+"""
+    )
+    warnings = bias_warnings(cfg, "sonnet", ["sonnet"])
+    assert len(warnings) == 1 and "also a candidate" in warnings[0]
