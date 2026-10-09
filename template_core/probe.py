@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from botocore.exceptions import BotoCoreError, ClientError
 
+PROBE_MAX_TOKENS = 16  # some models (e.g. kimi-k3) reject smaller limits
 PROBE_MESSAGES = [{"role": "user", "content": [{"text": "Reply with the single word: ok"}]}]
 
 
@@ -32,7 +33,7 @@ def _describe(exc: Exception) -> str:
 
 
 def _converse(runtime, model_id: str) -> None:
-    runtime.converse(modelId=model_id, messages=PROBE_MESSAGES, inferenceConfig={"maxTokens": 5})
+    runtime.converse(modelId=model_id, messages=PROBE_MESSAGES, inferenceConfig={"maxTokens": PROBE_MAX_TOKENS})
 
 
 def probe_model(bedrock, runtime, *, profile_id: str, region: str, account: str, name_prefix: str = "probe") -> ProbeResult:

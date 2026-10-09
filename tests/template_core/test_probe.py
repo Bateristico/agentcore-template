@@ -18,8 +18,10 @@ class FakeRuntime:
     def __init__(self, outcomes):
         self.outcomes = list(outcomes)
         self.model_ids = []
+        self.calls = []
 
     def converse(self, **kwargs):
+        self.calls.append(kwargs)
         self.model_ids.append(kwargs["modelId"])
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):
@@ -89,3 +91,9 @@ def test_table_has_one_row_per_result():
     table = format_probe_table([ProbeResult("a", True, None, True, None), ProbeResult("b", False, "E: x", None, None)])
     assert table.count("\n| ") == 2  # two data rows (header has no leading newline; separator starts "|-")
     assert "| b | no |" in table
+
+
+def test_probe_sends_at_least_16_max_tokens():
+    runtime = FakeRuntime([OK_CONVERSE, OK_CONVERSE])
+    probe_model(FakeBedrock(), runtime, profile_id="global.x.y", region="eu-central-1", account="111111111111")
+    assert all(c["inferenceConfig"]["maxTokens"] >= 16 for c in runtime.calls)
