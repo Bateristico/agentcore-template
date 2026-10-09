@@ -131,10 +131,13 @@ def g5(ctx: GateContext) -> list[Check]:
     window = ctx.state.get("g4")
     if not window:
         return [Check("G4 window available", False, "run g4 first")]
+    if not window.get("profiles"):
+        return [Check("G4 profiles available", False, "no billing-tagged profiles recorded; nothing to compare")]
     start = datetime.fromisoformat(window["start"]) - timedelta(minutes=2)
     end = datetime.fromisoformat(window["end"]) + timedelta(minutes=5)
     use_arn = ctx.state.get("model_id_dimension") == "profile-arn"
     cw = ctx.client("cloudwatch")
+    # Spec amendment: Task 10 measured EMF arrival at 6-10 min, so the criterion is "visible within 15 min".
     deadline = time.monotonic() + 900
     while True:
         checks: list[Check] = []
@@ -147,6 +150,8 @@ def g5(ctx: GateContext) -> list[Check]:
             for k in ("in", "out"):
                 ok = ours[k] is not None and theirs[k] is not None and within(ours[k], theirs[k], 0.02)
                 checks.append(Check(f"{key} {k}put tokens within ±2%", ok, f"kit={ours[k]} bedrock={theirs[k]}"))
+        elapsed = int((datetime.now(UTC) - datetime.fromisoformat(window['end'])).total_seconds())
         if all(c.ok for c in checks) or time.monotonic() >= deadline:
+            checks.append(Check("metrics visible within 15 min", all(c.ok for c in checks), f"visible after {elapsed}s"))
             return checks
         time.sleep(60)  # EMF and Bedrock metrics arrive within a few minutes

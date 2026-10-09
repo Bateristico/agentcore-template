@@ -48,3 +48,13 @@ def test_wait_for_profile_metrics_detects_dimension_form():
     b = "arn:aws:bedrock:eu-central-1:1:application-inference-profile/bbb"
     found, form = wait_for_profile_metrics(FakeCW({"aaa"}), [a, b], timeout=0.05, sleep=lambda s: None)
     assert found == {a: "aaa"} and form == "profile-id"
+
+
+def test_g5_fails_on_empty_profiles():
+    from types import SimpleNamespace
+
+    from validation.gates_deploy import g5
+
+    ctx = SimpleNamespace(state={"g4": {"start": "2026-01-01T00:00:00+00:00", "end": "2026-01-01T00:01:00+00:00", "profiles": {}}})
+    checks = g5(ctx)
+    assert len(checks) == 1 and not checks[0].ok
