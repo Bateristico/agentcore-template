@@ -103,6 +103,9 @@ class GateContext:
             kill_tree(proc.pid)
             out, err = proc.communicate()
             return subprocess.CompletedProcess(cmd, -1, out or "", (err or "") + f"\ntimed out after {timeout} s")
+        except KeyboardInterrupt:  # the child has its own session on POSIX, so Ctrl-C will not reach it
+            kill_tree(proc.pid)
+            raise
         return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
     def cdk(self, *args: str, context: dict[str, str] | None = None, timeout: int = 3600) -> subprocess.CompletedProcess:

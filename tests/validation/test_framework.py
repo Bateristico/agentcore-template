@@ -150,3 +150,22 @@ def test_children_get_own_session_on_posix_only(ctx, monkeypatch, os_name, expec
     ctx.run(["python", "-c", "pass"])
     assert seen.get("start_new_session", False) is expected
     assert framework.new_session_kwargs() == ({"start_new_session": True} if expected else {})
+
+
+def test_keyboard_interrupt_kills_child_tree_and_reraises(ctx, monkeypatch):
+    killed = []
+
+    class FakeProc:
+        pid = 77
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def communicate(self, timeout=None):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(framework.subprocess, "Popen", FakeProc)
+    monkeypatch.setattr(framework, "kill_tree", killed.append)
+    with pytest.raises(KeyboardInterrupt):
+        ctx.run(["python", "-c", "pass"])
+    assert killed == [77]
