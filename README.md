@@ -2,7 +2,7 @@
 
 Deploy [Strands](https://strandsagents.com) agents to **Amazon Bedrock AgentCore Runtime** with AWS CDK, run them on different Bedrock models, and see what each agent × model combination costs: per call, per benchmark, and on your AWS bill.
 
-> **Status:** design approved, implementation pending. This guide describes the target interface from the [design spec](docs/superpowers/specs/2026-10-09-agentcore-strands-template-design.md). Commands will work once the implementation lands.
+> **Status:** implemented and validated in `<profile>` (eu-central-1) on 2026-10-09: gates G0–G10 pass. Evidence: [docs/validation/2026-10-09-<profile>.md](docs/validation/2026-10-09-<profile>.md). Billing reconciliation (G11): pending cost-allocation-tag activation in the payer account (see README §4.5).
 
 **What you get**
 
