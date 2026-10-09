@@ -75,8 +75,8 @@ models:                         # alias -> Bedrock system inference profile
 judge: sonnet-4-5               # model that scores benchmark answers
 
 agents:                         # folder name under agents/ -> allowed models + default
-  hello-agent: { models: [haiku-4-5, nova-pro, sonnet-4-5], default: haiku-4-5 }
-  tools-agent: { models: [haiku-4-5, sonnet-4-5, gpt-5-5], default: sonnet-4-5 }
+  hello-agent: { models: [haiku-4-5, nova-2-lite, nova-pro], default: haiku-4-5 }
+  tools-agent: { models: [haiku-4-5, haiku-4-5-global, sonnet-4-6, nova-pro], default: haiku-4-5 }
 ```
 
 To see which model profiles your account offers:
@@ -191,7 +191,7 @@ cases:
 Run a suite:
 
 ```powershell
-uv run bench/run.py --agent tools-agent --suite basics --models haiku-4-5,sonnet-4-5,gpt-5-5 --repeats 3 --profile <profile>
+uv run bench/run.py --agent tools-agent --suite basics --models haiku-4-5,sonnet-4-6,nova-pro --repeats 3 --profile <profile>
 ```
 
 - The runner shows a **cost estimate** and asks you to confirm. Add `--yes` to skip the prompt in scripts.
@@ -313,7 +313,7 @@ Nothing in the code is tied to a specific account. Validation gate G9 proves thi
 | Invocation error `model 'x' not allowed` | Add the alias to that agent's `models:` list and redeploy the agent stack |
 | `ThrottlingException` during benchmarks | Lower concurrency with `--concurrency 2`, or request a Bedrock quota increase |
 | Costs page says "cost allocation tags not active" | Do step [4.5](#45-one-time-turn-on-billing-tags) and wait about 24 hours |
-| A model shows "no billing tag" | That model can't use an application inference profile. Its cost is token-based only, which is expected. |
+| A model shows "no billing tag" | That model can't use an application inference profile. Its cost is token-based only, which is expected. Check a new model with `uv run scripts/probe_models.py --profile <p> --models <profile-id>` before adding it. |
 | `cdk deploy` fails with an invalid runtime name | Agent folder and prefix names may only use letters, digits, and hyphens. Hyphens become underscores in runtime names, which have a maximum of 48 characters |
 
 ---
