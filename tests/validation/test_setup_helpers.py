@@ -61,3 +61,23 @@ def test_g2_popen_gets_new_session_kwargs_on_posix(tmp_path, monkeypatch):
     checks = gates_setup.g2(ctx)
     assert seen.get("start_new_session") is True
     assert checks and all(not c.ok for c in checks)
+
+
+def test_kit_lock_check_compares_committed_lock_with_fresh_export(tmp_path):
+    import subprocess
+
+    lock = tmp_path / "requirements.lock"
+    lock.write_bytes(b"boto3==1.0\r\nstrands-agents==1.59.0\r\n")  # CRLF from a Windows checkout still matches
+    fresh = subprocess.CompletedProcess([], 0, "boto3==1.0\nstrands-agents==1.59.0\n", "")
+    assert gates_setup.kit_lock_check(lock, fresh).ok
+    stale = subprocess.CompletedProcess([], 0, "boto3==1.1\nstrands-agents==1.59.0\n", "")
+    bad = gates_setup.kit_lock_check(lock, stale)
+    assert not bad.ok and "boto3==1.1" in bad.detail and "uv export" in bad.detail
+    assert not gates_setup.kit_lock_check(tmp_path / "missing.lock", fresh).ok
+    assert not gates_setup.kit_lock_check(lock, subprocess.CompletedProcess([], 2, "", "lock out of date")).ok
+
+
+def test_kit_lock_export_flags():
+    assert gates_setup.KIT_LOCK_EXPORT[:2] == ["uv", "export"]
+    for flag in ("--frozen", "--no-hashes", "--no-emit-workspace", "--no-dev", "--no-header"):
+        assert flag in gates_setup.KIT_LOCK_EXPORT

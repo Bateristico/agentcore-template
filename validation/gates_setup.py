@@ -10,6 +10,8 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from difflib import unified_diff
+from pathlib import Path
 
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -19,6 +21,10 @@ from validation.framework import Check, GateContext, command_check, gate, kill_t
 from validation.spend import validation_spend_estimate
 
 SMOKE_PROMPT = "Reply with the single word: pong"
+KIT_LOCK = Path("agents") / "_kit" / "requirements.lock"
+# Pinned third-party deps of the agent kit, from uv.lock; the image installs the kit with these as constraints.
+# Regenerate: uv export --frozen --package agentkit --no-hashes --no-emit-workspace --no-dev --no-header -o agents/_kit/requirements.lock
+KIT_LOCK_EXPORT = ["uv", "export", "--frozen", "--package", "agentkit", "--no-hashes", "--no-emit-workspace", "--no-dev", "--no-header"]
 
 
 @gate("g0", "Preflight")
@@ -62,11 +68,26 @@ def g0(ctx: GateContext) -> list[Check]:
     return checks
 
 
+def kit_lock_check(lock: Path, fresh: subprocess.CompletedProcess) -> Check:
+    """The committed image lock must equal a fresh `uv export` (line endings ignored)."""
+    name = "agents/_kit/requirements.lock matches uv.lock"
+    if fresh.returncode != 0:
+        return command_check(name, fresh)
+    if not lock.exists():
+        return Check(name, False, f"{lock} missing; generate it with: {' '.join(KIT_LOCK_EXPORT)} -o {KIT_LOCK.as_posix()}")
+    committed, expected = lock.read_text(encoding="utf-8").splitlines(), fresh.stdout.splitlines()
+    if committed == expected:
+        return Check(name, True, f"{len(expected)} lines")
+    diff = "\n".join(list(unified_diff(committed, expected, "committed", "uv export", lineterm=""))[:40])
+    return Check(name, False, f"stale; regenerate with: {' '.join(KIT_LOCK_EXPORT)} -o {KIT_LOCK.as_posix()}\n{diff}")
+
+
 @gate("g1", "Offline tests")
 def g1(ctx: GateContext) -> list[Check]:
     infra = ctx.repo_root / "infra"
     synth_env = {**os.environ, "CDK_DEFAULT_ACCOUNT": "123456789012", "CDK_DEFAULT_REGION": ctx.cfg.region}
     return [
+        kit_lock_check(ctx.repo_root / KIT_LOCK, ctx.run(KIT_LOCK_EXPORT)),
         command_check("pytest", ctx.run(["uv", "run", "pytest", "-q"])),
         command_check("ruff", ctx.run(["uv", "run", "ruff", "check", "."])),
         command_check("jest (CDK assertions, cdk-nag)", ctx.run(["npm", "test"], cwd=infra)),

@@ -10,7 +10,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 COPY _kit /app/_kit
-RUN pip install /app/_kit
+# requirements.lock pins the kit's third-party deps to uv.lock (regenerate: README §8; G1 checks it is current).
+RUN pip install -c /app/_kit/requirements.lock /app/_kit
 COPY ${AGENT}/requirements.txt /app/agent/requirements.txt
 RUN pip install -r /app/agent/requirements.txt
 COPY ${AGENT} /app/agent
