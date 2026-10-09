@@ -15,7 +15,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from template_core.costs import cost_tag_state
 from template_core.pricing import format_usd
-from validation.framework import Check, GateContext, command_check, gate, kill_tree
+from validation.framework import Check, GateContext, command_check, gate, kill_tree, new_session_kwargs
 from validation.spend import validation_spend_estimate
 
 SMOKE_PROMPT = "Reply with the single word: pong"
@@ -124,6 +124,7 @@ def g2(ctx: GateContext) -> list[Check]:
             proc = subprocess.Popen(
                 [shutil.which("uv") or "uv", "run", "--with-requirements", str(folder / "requirements.txt"), "python", "-m", "agentkit.server"],
                 cwd=ctx.repo_root, env=env, stdout=log, stderr=subprocess.STDOUT,
+                **new_session_kwargs(),
             )
             try:
                 if not wait_for_ping(port, 120):

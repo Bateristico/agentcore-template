@@ -1,5 +1,6 @@
 import json
 import subprocess
+import types
 
 import pytest
 
@@ -128,3 +129,24 @@ def test_helpers():
     ok = command_check("x", subprocess.CompletedProcess(["x"], 0, "out", ""))
     bad = command_check("x", subprocess.CompletedProcess(["x"], 1, "", "err"))
     assert ok.ok and not bad.ok and "err" in bad.detail
+
+
+@pytest.mark.parametrize(("os_name", "expected"), [("posix", True), ("nt", False)])
+def test_children_get_own_session_on_posix_only(ctx, monkeypatch, os_name, expected):
+    seen = {}
+
+    class FakeProc:
+        pid = 1
+        returncode = 0
+
+        def __init__(self, *a, **kw):
+            seen.update(kw)
+
+        def communicate(self, timeout=None):
+            return "", ""
+
+    monkeypatch.setattr(framework.subprocess, "Popen", FakeProc)
+    monkeypatch.setattr(framework, "os", types.SimpleNamespace(name=os_name))
+    ctx.run(["python", "-c", "pass"])
+    assert seen.get("start_new_session", False) is expected
+    assert framework.new_session_kwargs() == ({"start_new_session": True} if expected else {})

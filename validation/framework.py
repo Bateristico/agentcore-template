@@ -22,6 +22,11 @@ VALIDATION_ROOT = REPO_ROOT / "validation"
 ORDER = ["g0", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9", "g10"]  # g11 runs on its own, 24-48 h later
 
 
+def new_session_kwargs() -> dict[str, bool]:
+    """POSIX children get their own process group so kill_tree never signals the validator itself."""
+    return {} if os.name == "nt" else {"start_new_session": True}
+
+
 def kill_tree(pid: int) -> None:
     """Kill a process and all its children (uv spawns the real server as a child)."""
     if os.name == "nt":
@@ -90,7 +95,7 @@ class GateContext:
         exe = shutil.which(cmd[0]) or cmd[0]  # resolves npx.cmd / uv.exe on Windows
         proc = subprocess.Popen(
             [exe, *cmd[1:]], cwd=cwd or self.repo_root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", errors="replace",
+            text=True, encoding="utf-8", errors="replace", **new_session_kwargs(),
         )
         try:
             out, err = proc.communicate(timeout=timeout)
