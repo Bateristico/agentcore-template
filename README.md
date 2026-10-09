@@ -67,12 +67,14 @@ region: eu-central-1
 removal: retain                 # retain | destroy (what happens to the results bucket on teardown)
 
 models:                         # alias -> Bedrock system inference profile
-  haiku-4-5:  { profile: eu.anthropic.claude-haiku-4-5-20251001-v1:0 }
-  sonnet-4-5: { profile: eu.anthropic.claude-sonnet-4-5-20250929-v1:0 }
-  nova-pro:   { profile: eu.amazon.nova-pro-v1:0 }
-  gpt-5-5:    { profile: global.openai.gpt-5.5, billing_tag: false }   # no Cost Explorer tag
+  haiku-4-5:        { profile: eu.anthropic.claude-haiku-4-5-20251001-v1:0 }
+  haiku-4-5-global: { profile: global.anthropic.claude-haiku-4-5-20251001-v1:0 }   # same model, global routing (10% cheaper)
+  sonnet-4-6:       { profile: eu.anthropic.claude-sonnet-4-6 }
+  nova-2-lite:      { profile: eu.amazon.nova-2-lite-v1:0 }
+  nova-pro:         { profile: eu.amazon.nova-pro-v1:0 }
+  # kimi-k3:        { profile: global.moonshotai.kimi-k3, billing_tag: false }   # model without application-profile support: no Cost Explorer tag
 
-judge: sonnet-4-5               # model that scores benchmark answers
+judge: sonnet-4-6               # model that scores benchmark answers
 
 agents:                         # folder name under agents/ -> allowed models + default
   hello-agent: { models: [haiku-4-5, nova-2-lite, nova-pro], default: haiku-4-5 }
