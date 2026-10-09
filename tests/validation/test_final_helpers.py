@@ -165,3 +165,15 @@ def test_g11_checks_fail_billed_without_metered_usage():
     checks = g11_checks(rows, cfg)
     bad = [c for c in checks if not c.ok]
     assert len(bad) == 1 and "billed without metered usage" in bad[0].name and not bad[0].warning
+
+
+def test_split_leftovers_keeps_results_buckets_retained_by_earlier_runs():
+    old = "arn:aws:s3:::tmpl-platform-results12345678-abcdefghijkl"  # retained by a previous validation run
+    current = "arn:aws:s3:::tmpl-platform-resultsab12cd34-newbucket01"
+    other = "arn:aws:s3:::tmpl2-platform-results11111111-x"
+    role = "arn:aws:iam::1:role/tmpl-agent-x-Role"
+    retained, left = split_leftovers([old, current, other, role], "tmpl-platform-resultsab12cd34-newbucket01", prefix="tmpl")
+    assert retained == [old, current]
+    assert left == [other, role]
+    # without a prefix (removal: destroy) only the exact bucket would count, so nothing is exempt here
+    assert split_leftovers([old], None) == ([], [old])

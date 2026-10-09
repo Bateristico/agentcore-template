@@ -69,10 +69,15 @@ def existing_stacks(cfn, prefix: str) -> list[str]:
             return names
 
 
-def split_leftovers(arns: list[str], bucket: str | None) -> tuple[list[str], list[str]]:
-    """(retained, leftovers): only the expected results bucket's ARN (any partition) counts as retained."""
-    pattern = re.compile(rf"^arn:[^:]+:s3:::{re.escape(bucket)}$") if bucket else None
-    retained = [a for a in arns if pattern and pattern.match(a)]
+def split_leftovers(arns: list[str], bucket: str | None, prefix: str | None = None) -> tuple[list[str], list[str]]:
+    """(retained, leftovers): the expected results bucket's ARN (any partition) counts as retained; with `prefix`
+    (removal: retain) so do results buckets that earlier runs of this prefix retained (`<prefix>-platform-results<id>`)."""
+    patterns = []
+    if bucket:
+        patterns.append(re.compile(rf"^arn:[^:]+:s3:::{re.escape(bucket)}$"))
+    if prefix:
+        patterns.append(re.compile(rf"^arn:[^:]+:s3:::{re.escape(prefix.lower())}-platform-results[a-z0-9]+-[a-z0-9]+$"))
+    retained = [a for a in arns if any(p.match(a) for p in patterns)]
     return retained, [a for a in arns if a not in retained]
 
 
@@ -185,14 +190,15 @@ def g10(ctx: GateContext) -> list[Check]:
     regions = list(dict.fromkeys([cfg.region, "us-east-1"]))
     deadline = time.monotonic() + 300
     while True:
-        retained, leftovers = split_leftovers(tagged_in_regions(ctx.session, regions, cfg.prefix), bucket if retain else None)
+        retained, leftovers = split_leftovers(tagged_in_regions(ctx.session, regions, cfg.prefix), bucket if retain else None,
+                                             cfg.prefix if retain else None)
         left2 = tagged_in_regions(ctx.session, regions, prefix2) if prefix2 else []
         if (not leftovers and not left2) or time.monotonic() >= deadline:
             break
         time.sleep(30)
     checks.append(Check(f"nothing left tagged project={cfg.prefix}", not leftovers, ", ".join(leftovers) or "clean"))
     if retained:
-        checks.append(Check("results bucket retained (removal: retain)", True, ", ".join(retained)))
+        checks.append(Check("results bucket(s) retained (removal: retain, incl. earlier runs)", True, ", ".join(retained)))
     if prefix2:
         checks.append(Check(f"nothing left tagged project={prefix2}", not left2, ", ".join(left2) or "clean"))
 
