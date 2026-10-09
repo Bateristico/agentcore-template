@@ -130,3 +130,22 @@ def test_reconcile_tolerance_and_notes():
     assert off[0].within is False
     none = reconcile(live[:1], BilledCosts("ok", "", {}, {}, Decimal(0), Decimal(0)), CFG)
     assert none[0].within is None and "no billed data" in none[0].note
+
+
+def test_billed_costs_warn_when_tags_inactive_but_data_present():
+    ce = FakeCE(groups=[(("agent$", "model$m1"), "0.30")], tags=[{"TagKey": "agent", "Status": "Inactive"}])
+    b = billed_costs(ce, CFG, date(2026, 10, 8), date(2026, 10, 10))
+    assert b.status == "ok" and b.judge == Decimal("0.30")
+    assert "not active" in b.message
+
+
+def test_reconcile_unavailable_status_marks_every_row():
+    live = [LiveCost("a", "m1", Usage("m1", 1), 0, Decimal("1.00"))]
+    rows = reconcile(live, BilledCosts("no_access", "denied", {}, {}, Decimal(0), Decimal(0)), CFG)
+    assert rows[0].within is None and "no_access" in rows[0].note and rows[0].delta_pct is None
+
+
+def test_reconcile_compares_genuine_zero_billed():
+    live = [LiveCost("a", "m1", Usage("m1", 1), 0, Decimal("1.00"))]
+    rows = reconcile(live, BilledCosts("ok", "", {("a", "m1"): Decimal(0)}, {}, Decimal(0), Decimal(0)), CFG)
+    assert rows[0].within is False and abs(rows[0].delta_pct + 100.0) < 1e-9

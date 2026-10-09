@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import boto3
 
@@ -24,23 +24,28 @@ def main() -> int:
 
     cfg, prices = load_config(), load_pricing()
     session = boto3.Session(profile_name=args.profile, region_name=cfg.region)
-    end_day = date.today() + timedelta(days=1)
+    # Whole completed UTC days only: end is midnight UTC today (exclusive), so today's partial day is excluded.
+    end_day = datetime.now(UTC).date()
     start_day = end_day - timedelta(days=args.days)
     start = datetime(start_day.year, start_day.month, start_day.day, tzinfo=UTC)
-    end = min(datetime.now(UTC), datetime(end_day.year, end_day.month, end_day.day, tzinfo=UTC))
+    end = datetime(end_day.year, end_day.month, end_day.day, tzinfo=UTC)
 
     live = live_costs(session.client("cloudwatch"), cfg, prices, start, end)
     billed = billed_costs(session.client("ce", region_name="us-east-1"), cfg, start_day, end_day)
-    print(f"window {start_day} .. {end_day} (exclusive) — billed status: {billed.status}")
+    print(f"window {start_day} .. {end_day} (exclusive, UTC) - billed status: {billed.status}")
     print(billed.message)
     print(f"{'agent':14} {'model':18} {'estimate':>12} {'billed':>12} {'delta':>8}  note")
     for r in reconcile(live, billed, cfg, args.tolerance):
         delta = "-" if r.delta_pct is None else f"{r.delta_pct:+.1f}%"
         flag = "" if r.within is None else ("ok" if r.within else "OUT OF TOLERANCE")
-        print(f"{r.agent:14} {r.model:18} {format_usd(r.estimate):>12} {format_usd(r.billed) if r.billed else '-':>12} {delta:>8}  {flag} {r.note}")
-    for agent, amount in billed.agent_compute.items():
-        print(f"AgentCore compute billed to {agent}: {format_usd(amount)}")
-    print(f"judge (evaluation) billed: {format_usd(billed.judge)}; untagged within project: {format_usd(billed.untagged)}")
+        billed_text = "-" if r.billed is None else format_usd(r.billed)
+        print(f"{r.agent:14} {r.model:18} {format_usd(r.estimate):>12} {billed_text:>12} {delta:>8}  {flag} {r.note}")
+    if billed.status == "ok":
+        for agent, amount in billed.agent_compute.items():
+            print(f"AgentCore compute billed to {agent}: {format_usd(amount)}")
+        print(f"judge (evaluation) billed: {format_usd(billed.judge)}; untagged within project: {format_usd(billed.untagged)}")
+    else:
+        print(f"judge and untagged billed: n/a ({billed.status})")
     return 0
 
 

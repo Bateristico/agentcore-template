@@ -174,7 +174,11 @@ def billed_costs(ce, cfg: DeployConfig, start: date, end: date) -> BilledCosts:
         raise
 
     if by_pair or compute or judge:
-        return BilledCosts("ok", "Billed cost by tag (Cost Explorer, daily granularity).", by_pair, compute, judge, untagged)
+        message = "Billed cost by tag (Cost Explorer, daily granularity)."
+        if tag_state.startswith("inactive"):
+            missing = tag_state.split(":", 1)[1]
+            message += f" Warning: cost allocation tags not active: {missing}; amounts may be misattributed."
+        return BilledCosts("ok", message, by_pair, compute, judge, untagged)
     if tag_state.startswith("inactive"):
         missing = tag_state.split(":", 1)[1]
         message = (
@@ -206,15 +210,18 @@ def reconcile(live: list[LiveCost], billed: BilledCosts, cfg: DeployConfig, tole
     rows = []
     for item in live:
         amount = billed.by_pair.get((item.agent, item.model))
-        if not cfg.models[item.model].billing_tag:
+        if billed.status != "ok":
+            rows.append(ReconRow(item.agent, item.model, item.estimate_usd, None, None, None, f"billed data unavailable: {billed.status}"))
+        elif not cfg.models[item.model].billing_tag:
             rows.append(ReconRow(item.agent, item.model, item.estimate_usd, amount, None, None, "no billing tag (application profile unsupported)"))
         elif item.estimate_usd is None:
             rows.append(ReconRow(item.agent, item.model, None, amount, None, None, "unpriced in pricing.yaml"))
-        elif not amount:
+        elif amount is None:
             note = "no usage" if item.estimate_usd == 0 else "no billed data yet"
             rows.append(ReconRow(item.agent, item.model, item.estimate_usd, amount, None, None, note))
         elif item.estimate_usd == 0:
-            rows.append(ReconRow(item.agent, item.model, item.estimate_usd, amount, None, None, "billed cost without metered usage"))
+            note = "no usage" if amount == 0 else "billed cost without metered usage"
+            rows.append(ReconRow(item.agent, item.model, item.estimate_usd, amount, None, None, note))
         else:
             delta = float((amount - item.estimate_usd) / item.estimate_usd * 100)
             rows.append(ReconRow(item.agent, item.model, item.estimate_usd, amount, delta, abs(delta) <= tolerance * 100, ""))
