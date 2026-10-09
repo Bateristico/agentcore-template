@@ -9,7 +9,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from template_core.config import load_config
-from template_core.costs import billed_costs, live_costs, reconcile
+from template_core.costs import ReconRow, billed_costs, live_costs, reconcile
+from template_core.deployment import DeploymentNotFound, load_deployment
 from template_core.pricing import format_usd
 from validation.framework import Check, GateContext, command_check, gate
 from validation.gates_deploy import matrix_checks, other_runtimes
@@ -51,6 +52,55 @@ def tagged_resources(tagging, prefix: str) -> list[str]:
             return arns
 
 
+def second_prefix_problem(main_prefix: str, prefix2: str) -> str | None:
+    return "second prefix collides with main prefix" if prefix2 == main_prefix else None
+
+
+def existing_stacks(cfn, prefix: str) -> list[str]:
+    """Live (not DELETE_COMPLETE) CloudFormation stacks whose name starts with '<prefix>-'."""
+    names, token = [], None
+    while True:
+        resp = cfn.list_stacks(**({"NextToken": token} if token else {}))
+        names += [s["StackName"] for s in resp.get("StackSummaries", [])
+                  if s.get("StackStatus") != "DELETE_COMPLETE" and s["StackName"].startswith(f"{prefix}-")]
+        token = resp.get("NextToken")
+        if not token:
+            return names
+
+
+def split_leftovers(arns: list[str], bucket: str | None) -> tuple[list[str], list[str]]:
+    """(retained, leftovers): only the expected results bucket's ARN (any partition) counts as retained."""
+    pattern = re.compile(rf"^arn:[^:]+:s3:::{re.escape(bucket)}$") if bucket else None
+    retained = [a for a in arns if pattern and pattern.match(a)]
+    return retained, [a for a in arns if a not in retained]
+
+
+def tagged_in_regions(session, regions: list[str], prefix: str) -> list[str]:
+    seen: dict[str, None] = {}
+    for region in regions:
+        for arn in tagged_resources(session.client("resourcegroupstaggingapi", region_name=region), prefix):
+            seen[arn] = None
+    return list(seen)
+
+
+def g11_checks(rows: list[ReconRow], cfg, message: str = "") -> list[Check]:
+    checks, compared = [], 0
+    for r in rows:
+        name = f"{r.agent} × {r.model}"
+        if r.within is not None:
+            compared += 1
+            checks.append(Check(f"{name} within ±10%", r.within,
+                                f"estimate {format_usd(r.estimate)} billed {format_usd(r.billed)} delta {r.delta_pct:+.1f}%"))
+        elif cfg.models[r.model].billing_tag and r.estimate and r.billed is None:
+            checks.append(Check(f"{name}: no billed data for taggable pair", False, f"estimate {format_usd(r.estimate)}, {r.note}"))
+        else:
+            checks.append(Check(name, True, f"not compared: {r.note}"))
+    checks.append(Check("at least one pair compared", compared > 0, f"{compared} compared"))
+    if "Warning" in message:
+        checks.append(Check("billing data caveat", False, message, warning=True))
+    return checks
+
+
 def g11_window(today: date) -> tuple[date, date, datetime, datetime]:
     """Three whole completed UTC days ending at midnight UTC today (exclusive), as scripts/reconcile_costs.py."""
     end_day = today
@@ -58,6 +108,10 @@ def g11_window(today: date) -> tuple[date, date, datetime, datetime]:
     start = datetime(start_day.year, start_day.month, start_day.day, tzinfo=UTC)
     end = datetime(end_day.year, end_day.month, end_day.day, tzinfo=UTC)
     return start_day, end_day, start, end
+
+
+def _account(ctx: GateContext) -> str:
+    return ctx.state.get("account") or ctx.client("sts").get_caller_identity()["Account"]
 
 
 @gate("g9", "Portability")
@@ -70,47 +124,65 @@ def g9(ctx: GateContext) -> list[Check]:
     checks = [command_check("synth for another account and region", fake)]
 
     prefix2 = second_prefix(ctx.cfg.prefix)
-    ctx.state["second_prefix"] = prefix2
+    problem = second_prefix_problem(ctx.cfg.prefix, prefix2)
+    if problem:
+        return [*checks, Check("second prefix is safe", False, problem)]
+    existing = existing_stacks(ctx.client("cloudformation"), prefix2)
+    if existing:
+        return [*checks, Check("second prefix is unused", False, f"stacks for {prefix2} already exist; refusing to deploy over them: {', '.join(existing)}")]
+    account = _account(ctx)
+    if not ctx.confirm(f"Deploy a temporary second copy '{prefix2}' into account {account} ({ctx.cfg.region})?"):
+        return [*checks, Check("second copy deploy confirmed", False, "declined")]
     deploy = ctx.cdk("deploy", "--all", "--require-approval", "never", context={"prefix": prefix2, "removal": "destroy"})
     checks.append(command_check(f"deploy a second copy with prefix '{prefix2}'", deploy))
     if deploy.returncode == 0:
+        ctx.state["second_prefix"] = prefix2
         matrix, _ = matrix_checks(load_config(prefix=prefix2, removal="destroy"), ctx.session, label=f"{prefix2}: ")
         checks += matrix
 
-    account = ctx.state.get("account") or ctx.client("sts").get_caller_identity()["Account"]
-    hits = scan_for_account(ctx.repo_root, account)
+    hits = scan_for_account(ctx.repo_root, _account(ctx))
     checks.append(Check("account id absent from source", not hits, ", ".join(hits) or "clean"))
     return checks
 
 
 @gate("g10", "Teardown")
 def g10(ctx: GateContext) -> list[Check]:
-    if not ctx.confirm("Destroy all template stacks?"):
-        return [Check("teardown confirmed", False, "declined")]
-    checks: list[Check] = []
+    cfg = ctx.cfg
     prefix2 = ctx.state.get("second_prefix")
+    if prefix2 != second_prefix(cfg.prefix):
+        prefix2 = None
+    retain = cfg.removal == "retain"
+    targets = f"{cfg.prefix}{' and ' + prefix2 if prefix2 else ''}"
+    if not ctx.confirm(f"Destroy stacks for prefixes {targets} in account {_account(ctx)} ({cfg.region})? "
+                       f"Results bucket is {'retained' if retain else 'deleted'}."):
+        return [Check("teardown confirmed", False, "declined")]
+    try:
+        bucket = load_deployment(cfg, ctx.session).results_bucket
+    except DeploymentNotFound:
+        bucket = None
+    ctx.state["results_bucket"] = bucket
+
+    checks: list[Check] = []
     if prefix2:
         checks.append(command_check(f"destroy '{prefix2}'", ctx.cdk("destroy", "--all", "--force", context={"prefix": prefix2, "removal": "destroy"})))
-    checks.append(command_check(f"destroy '{ctx.cfg.prefix}'", ctx.cdk("destroy", "--all", "--force")))
+    checks.append(command_check(f"destroy '{cfg.prefix}'", ctx.cdk("destroy", "--all", "--force", context={"prefix": cfg.prefix, "removal": cfg.removal})))
 
-    tagging = ctx.client("resourcegroupstaggingapi")
+    regions = list(dict.fromkeys([cfg.region, "us-east-1"]))
     deadline = time.monotonic() + 300
     while True:
-        left = tagged_resources(tagging, ctx.cfg.prefix)
-        retained = [a for a in left if a.startswith("arn:aws:s3:::") and ctx.cfg.removal == "retain"]
-        leftovers = [a for a in left if a not in retained]
-        left2 = tagged_resources(tagging, prefix2) if prefix2 else []
+        retained, leftovers = split_leftovers(tagged_in_regions(ctx.session, regions, cfg.prefix), bucket if retain else None)
+        left2 = tagged_in_regions(ctx.session, regions, prefix2) if prefix2 else []
         if (not leftovers and not left2) or time.monotonic() >= deadline:
             break
         time.sleep(30)
-    checks.append(Check(f"nothing left tagged project={ctx.cfg.prefix}", not leftovers, ", ".join(leftovers) or "clean"))
+    checks.append(Check(f"nothing left tagged project={cfg.prefix}", not leftovers, ", ".join(leftovers) or "clean"))
     if retained:
         checks.append(Check("results bucket retained (removal: retain)", True, ", ".join(retained)))
     if prefix2:
         checks.append(Check(f"nothing left tagged project={prefix2}", not left2, ", ".join(left2) or "clean"))
 
     before = ctx.state.get("other_runtimes")
-    after = other_runtimes(ctx.client("bedrock-agentcore-control"), ctx.cfg.prefix)
+    after = other_runtimes(ctx.client("bedrock-agentcore-control"), cfg.prefix)
     checks.append(Check("other runtimes unchanged", before is not None and after == before, f"before={before} after={after}"))
     return checks
 
@@ -123,12 +195,7 @@ def g11(ctx: GateContext) -> list[Check]:
     checks = [Check("billed data available", billed.status == "ok", billed.message)]
     if billed.status != "ok":
         return checks
-    for r in reconcile(live, billed, ctx.cfg):
-        if r.within is None:
-            checks.append(Check(f"{r.agent} × {r.model}", True, f"not compared: {r.note}"))
-        else:
-            checks.append(Check(f"{r.agent} × {r.model} within ±10%", r.within,
-                                f"estimate {format_usd(r.estimate)} billed {format_usd(r.billed)} delta {r.delta_pct:+.1f}%"))
+    checks += g11_checks(reconcile(live, billed, ctx.cfg), ctx.cfg, billed.message)
     checks.append(Check("AgentCore compute carries the agent tag (spec §8 item 3)", bool(billed.agent_compute),
                         ", ".join(f"{a}: {format_usd(v)}" for a, v in billed.agent_compute.items()) or "no agent-tagged compute cost",
                         warning=not billed.agent_compute))
