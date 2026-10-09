@@ -1,5 +1,7 @@
 # USD per 1M tokens (AgentCore: per vCPU-hour / GB-hour). Regenerate with:
 #   uv run scripts/refresh_pricing.py --profile <profile> --write
+# Region-specific: these prices and usage types (EUC1-...) are for eu-central-1. Usage types differ by region;
+# re-derive them before deploying elsewhere (refresh_pricing.py exits 1 when one is not found).
 currency: USD
 as_of: 2026-10-09
 agentcore:
