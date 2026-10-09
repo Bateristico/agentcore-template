@@ -10,6 +10,7 @@ import argparse
 import sys
 
 import boto3
+from botocore.exceptions import ClientError
 
 from bench.judge import Judge
 from bench.orchestrate import execute_run, rerender
@@ -18,9 +19,9 @@ from bench.runner import RunSpec, estimate_cost, new_run_id
 from bench.store import RunStore
 from bench.suite import load_suite
 from template_core.agentcore import AgentClient
-from template_core.config import load_config
+from template_core.config import ConfigError, load_config
 from template_core.console import utf8_stdout
-from template_core.deployment import load_deployment
+from template_core.deployment import DeploymentNotFound, load_deployment
 from template_core.pricing import format_usd, load_pricing
 
 
@@ -33,7 +34,7 @@ def _print_table(rows: list[dict[str, str]]) -> None:
         print("  ".join(r[k].ljust(widths[k]) for k in r))
 
 
-def run_main(argv: list[str]) -> int:
+def _run_main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="bench/run.py")
     ap.add_argument("--agent", required=True)
     ap.add_argument("--suite", required=True)
@@ -44,13 +45,16 @@ def run_main(argv: list[str]) -> int:
     ap.add_argument("--yes", action="store_true", help="skip the cost confirmation")
     ap.add_argument("--profile")
     args = ap.parse_args(argv)
+    if args.repeats < 1 or args.concurrency < 1:
+        print("--repeats and --concurrency must be at least 1", file=sys.stderr)
+        return 2
 
     cfg, prices = load_config(), load_pricing()
     if args.agent not in cfg.agents:
         print(f"unknown agent '{args.agent}'; configured: {', '.join(cfg.agents)}", file=sys.stderr)
         return 2
     allowed = cfg.agents[args.agent].models
-    models = args.models.split(",") if args.models else list(allowed)
+    models = list(dict.fromkeys(args.models.split(","))) if args.models else list(allowed)
     bad = [m for m in models if m not in allowed]
     if bad:
         print(f"models not allowed for {args.agent}: {', '.join(bad)}; allowed: {', '.join(allowed)}", file=sys.stderr)
@@ -87,7 +91,7 @@ def run_main(argv: list[str]) -> int:
     return 0
 
 
-def report_main(argv: list[str]) -> int:
+def _report_main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="bench/run.py report")
     ap.add_argument("run_id")
     ap.add_argument("--reprice", action="store_true", help="use the current pricing.yaml instead of the run's snapshot")
@@ -103,6 +107,28 @@ def report_main(argv: list[str]) -> int:
     _print_table(summary_table(summaries))
     print(f"report updated: {store.local_root / args.run_id / 'report.html'} and s3://{deployment.results_bucket}/runs/{args.run_id}/report.html")
     return 0
+
+
+def run_main(argv: list[str]) -> int:
+    try:
+        return _run_main(argv)
+    except (ConfigError, DeploymentNotFound) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+
+def report_main(argv: list[str]) -> int:
+    try:
+        return _report_main(argv)
+    except (FileNotFoundError, DeploymentNotFound, ConfigError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code")
+        if code in ("NoSuchKey", "404"):
+            print("run not found", file=sys.stderr)
+            return 2
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from botocore.exceptions import BotoCoreError, ClientError
+
 from bench.records import Row
 from template_core.config import REPO_ROOT
 
@@ -26,11 +28,17 @@ class RunStore:
         for name, content in files.items():
             (folder / name).write_text(content, encoding="utf-8")
             locations.append(str(folder / name))
-            if self.s3 is not None and self.bucket:
+        warnings = []
+        if self.s3 is not None and self.bucket:
+            for name, content in files.items():
                 key = f"runs/{run_id}/{name}"
-                self.s3.put_object(Bucket=self.bucket, Key=key, Body=content.encode("utf-8"), ContentType=_TYPES[name])
+                try:
+                    self.s3.put_object(Bucket=self.bucket, Key=key, Body=content.encode("utf-8"), ContentType=_TYPES[name])
+                except (ClientError, BotoCoreError) as exc:
+                    warnings.append(f"WARNING: S3 upload failed: {exc}")
+                    break  # the same credentials/bucket problem would repeat for every file
                 locations.append(f"s3://{self.bucket}/{key}")
-        return locations
+        return locations + warnings
 
     def save(self, meta: dict[str, Any], rows: list[Row], html: str) -> list[str]:
         results = "".join(json.dumps(r.to_dict(), ensure_ascii=False) + "\n" for r in rows)
@@ -68,7 +76,7 @@ class RunStore:
                     break
                 token = resp["NextContinuationToken"]
             metas = []
-            for prefix in prefixes[-limit:]:
+            for prefix in prefixes:
                 body = self.s3.get_object(Bucket=self.bucket, Key=f"{prefix}run.json")["Body"].read()
                 metas.append(json.loads(body))
         else:

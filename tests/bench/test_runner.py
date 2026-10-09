@@ -35,9 +35,9 @@ def test_tasks_cover_models_cases_repeats():
 
 def test_estimate_cost_golden():
     # per call: 1000*1/1e6 + 100*5/1e6 = 0.0015; 4 calls = 0.006
-    # judge per call: 1500*3/1e6 + 150*15/1e6 = 0.00675; 4 calls = 0.027
+    # judge per call: 300*3/1e6 + 60*15/1e6 = 0.0018; 4 calls = 0.0072
     assert estimate_cost(spec(), PRICES, None) == Decimal("0.006")
-    assert estimate_cost(spec(), PRICES, "j") == Decimal("0.033")
+    assert estimate_cost(spec(), PRICES, "j") == Decimal("0.0132")
 
 
 def test_run_id_format():

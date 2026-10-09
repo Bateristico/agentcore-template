@@ -17,7 +17,7 @@ from bench.suite import Case, Suite
 from template_core.agentcore import InvokeResult
 from template_core.pricing import PriceTable
 
-JUDGE_ESTIMATE = Usage(model="judge", input_tokens=1500, output_tokens=150)
+JUDGE_ESTIMATE = Usage(model="judge", input_tokens=300, output_tokens=60)
 
 InvokeFn = Callable[[Task, str], InvokeResult]
 GradeFn = Callable[[Case, str], Verdict]

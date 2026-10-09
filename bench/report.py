@@ -124,6 +124,7 @@ def summary_table(summaries: list[ModelSummary]) -> list[dict[str, str]]:
         {
             "model": s.model,
             "calls": str(s.calls),
+            "total $": format_usd(s.total_cost),
             "avg $/case": format_usd(s.avg_cost),
             "$ per 1k conversations": format_usd(s.cost_per_1k),
             "avg in/out tokens": f"{s.avg_input:.0f} / {s.avg_output:.0f}",
@@ -167,8 +168,8 @@ svg text { fill:var(--muted); font-size:11px } svg .lbl { fill:var(--fg); font-s
 <div class="muted">agent <b>{{ meta.agent }}</b> · suite <b>{{ meta.suite }}</b> · {{ meta.models|length }} models × {{ meta.repeats }} repeats · judge {{ meta.judge or "none" }} · {{ meta.created_at }}{% if repriced %} · <b>re-priced with current pricing.yaml</b>{% endif %}</div>
 <p>Estimated before run: {{ meta.estimate_usd_fmt }} · actual model cost: {{ actual_fmt }} · evaluation (judge) cost: {{ eval_fmt }} · AgentCore compute (est.): {{ agentcore_fmt }}</p>
 {% if warnings %}<h2>Warnings</h2><ul>{% for w in warnings %}<li class="warn">{{ w }}</li>{% endfor %}</ul>{% endif %}
-<h2>Per model</h2><div class="wrap"><table><tr>{% for k in table[0].keys() %}<th>{{ k }}</th>{% endfor %}</tr>
-{% for r in table %}<tr>{% for k, v in r.items() %}<td class="{{ 'front' if k == 'model' and v in front else '' }}">{{ v }}</td>{% endfor %}</tr>{% endfor %}</table></div>
+<h2>Per model</h2>{% if not table %}<p class="muted">No results.</p>{% else %}<div class="wrap"><table><tr>{% for k in table[0].keys() %}<th>{{ k }}</th>{% endfor %}</tr>
+{% for r in table %}<tr>{% for k, v in r.items() %}<td class="{{ 'front' if k == 'model' and v in front else '' }}">{{ v }}</td>{% endfor %}</tr>{% endfor %}</table></div>{% endif %}
 <p class="muted">Bold models are on the cost/quality frontier: no other model is both cheaper and better.</p>
 <h2>Cost vs quality</h2>
 <svg viewBox="0 0 {{ sc.width }} {{ sc.height }}" width="100%" role="img" aria-label="Average cost per case against average judge score">
@@ -217,7 +218,7 @@ def render_html(
         repriced=repriced,
         actual_fmt=format_usd(actual),
         eval_fmt=format_usd(eval_cost) if meta.get("judge") else "none",
-        agentcore_fmt=format_usd(agentcore_usd) if agentcore_usd is not None else "pending (metrics arrive within ~60 min; run `report --reprice`)",
+        agentcore_fmt=format_usd(agentcore_usd) if agentcore_usd is not None else "pending (metrics arrive within ~60 min; run `bench/run.py report <run_id>` later)",
     )
 
 

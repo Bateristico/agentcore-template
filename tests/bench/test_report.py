@@ -97,3 +97,16 @@ def test_report_escapes_model_output_and_shows_warnings():  # Review Focus 3
     assert "both anthropic models" in html
     assert "pending" in html.lower()
     assert {s.model for s in summaries} == {"m1", "m2"}
+
+
+def test_empty_report_does_not_raise():
+    meta = {"run_id": "r1", "agent": "a", "suite": "s", "models": [], "repeats": 1, "judge": None,
+            "created_at": "2026-10-09T12:00:00Z"}
+    html, summaries = build_report(meta, [], PRICES, CFG, agentcore_usd=None)
+    assert summaries == [] and "No results" in html
+
+
+def test_summary_table_has_total_column():
+    from bench.report import summary_table
+
+    assert list(summary_table(summarize(ROWS, PRICES))[0])[:3] == ["model", "calls", "total $"]
