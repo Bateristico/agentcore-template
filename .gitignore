@@ -8,3 +8,14 @@ validation/2*/
 infra/node_modules/
 infra/cdk.out/
 infra/cdk.context.json
+
+# Local environment (copy .env.example to .env)
+.env
+.env.*
+!.env.example
+
+# Internal planning and account-specific validation evidence (kept local only)
+.superpowers/
+docs/superpowers/
+docs/validation/
+docs/verification-findings.md
