@@ -1,0 +1,22 @@
+# Judge calibration (validation gate G6): every good answer must score >= 4, every bad answer <= 2.
+pairs:
+  - id: math
+    prompt: "What is 17% of 2,340?"
+    expected: "397.8"
+    good: "17% of 2,340 is 397.8."
+    bad: "17% of 2,340 is 412."
+  - id: capital
+    prompt: "What is the capital of Denmark?"
+    expected: "Copenhagen"
+    good: "The capital of Denmark is Copenhagen."
+    bad: "The capital of Denmark is Aarhus."
+  - id: order
+    prompt: "What is the status of order A101 and its total in DKK?"
+    expected: "Processing; total 1299.50 DKK; about 5 days to delivery"
+    good: "Order A101 is still being processed. The total is 1,299.50 DKK and it should arrive in about 5 days."
+    bad: "Order A101 was delivered yesterday and cost 89 DKK."
+  - id: empty
+    prompt: "Summarise the benefit of unit tests in one sentence."
+    expected: "Unit tests catch regressions early and document intended behaviour."
+    good: "Unit tests catch bugs early, make refactoring safer and document how the code should behave."
+    bad: ""

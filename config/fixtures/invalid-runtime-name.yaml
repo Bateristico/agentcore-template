@@ -1,0 +1,8 @@
+# expect: runtime name
+prefix: abcdefghijkl
+region: eu-west-1
+models:
+  m1: { profile: eu.amazon.nova-pro-v1:0 }
+judge: m1
+agents:
+  a-very-long-agent-name-that-will-not-fit-in-48: { models: [m1], default: m1 }

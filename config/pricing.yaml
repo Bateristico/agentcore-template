@@ -1,0 +1,72 @@
+# USD per 1M tokens (AgentCore: per vCPU-hour / GB-hour). Regenerate with:
+#   uv run scripts/refresh_pricing.py --profile <profile> --write
+# Region-specific: these prices and usage types (EUC1-...) are for eu-central-1. Usage types differ by region;
+# re-derive them before deploying elsewhere (refresh_pricing.py exits 1 when one is not found).
+currency: USD
+as_of: 2026-10-09
+agentcore:
+  vcpu_hour: 0.0895
+  gb_hour: 0.00945
+models:
+  haiku-4-5:
+    input: 1.1
+    output: 5.5
+    cache_read: 0.11
+    cache_write: 1.375
+    source:
+      service_code: AmazonBedrockFoundationModels
+      model: Claude Haiku 4.5
+      usage_types:
+        input: EUC1-MP:EUC1_InputTokenCount-Units
+        output: EUC1-MP:EUC1_OutputTokenCount-Units
+        cache_read: EUC1-MP:EUC1_CacheReadInputTokenCount-Units
+        cache_write: EUC1-MP:EUC1_CacheWriteInputTokenCount-Units
+  haiku-4-5-global:
+    input: 1.0
+    output: 5.0
+    cache_read: 0.1
+    cache_write: 1.25
+    source:
+      service_code: AmazonBedrockFoundationModels
+      model: Claude Haiku 4.5
+      usage_types:
+        input: EUC1-MP:EUC1_InputTokenCount_Global-Units
+        output: EUC1-MP:EUC1_OutputTokenCount_Global-Units
+        cache_read: EUC1-MP:EUC1_CacheReadInputTokenCount_Global-Units
+        cache_write: EUC1-MP:EUC1_CacheWriteInputTokenCount_Global-Units
+  sonnet-4-6:
+    input: 3.3
+    output: 16.5
+    cache_read: 0.33
+    cache_write: 4.125
+    source:
+      service_code: AmazonBedrockFoundationModels
+      model: Claude Sonnet 4.6
+      usage_types:
+        input: EUC1-MP:EUC1_InputTokenCount-Units
+        output: EUC1-MP:EUC1_OutputTokenCount-Units
+        cache_read: EUC1-MP:EUC1_CacheReadInputTokenCount-Units
+        cache_write: EUC1-MP:EUC1_CacheWriteInputTokenCount-Units
+  nova-2-lite:
+    input: 0.429
+    output: 3.597
+    cache_read: 0.10725
+    cache_write: 0.0
+    source:
+      service_code: AmazonBedrock
+      usage_types:
+        input: EUC1-Nova2.0Lite-input-tokens
+        output: EUC1-Nova2.0Lite-output-tokens
+        cache_read: EUC1-Nova2.0Lite-cache-read-input-token-count
+        cache_write: EUC1-Nova2.0Lite-cache-write-input-token-count
+  nova-pro:
+    input: 1.05
+    output: 4.2
+    cache_read: 0.2625
+    cache_write: 0.0
+    source:
+      service_code: AmazonBedrock
+      usage_types:
+        input: EUC1-NovaPro-input-tokens
+        output: EUC1-NovaPro-output-tokens
+        cache_read: EUC1-NovaPro-cache-read-input-token-count

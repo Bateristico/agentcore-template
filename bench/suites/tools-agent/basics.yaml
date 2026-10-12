@@ -1,0 +1,15 @@
+suite: basics
+estimate: { input_tokens: 1800, output_tokens: 130 }
+cases:
+  - id: threshold
+    prompt: "What is 17% of 2,340 and is that above the 400 threshold?"
+    expected: "397.8, which is below 400"
+    rubric: "Correct number; correct comparison."
+  - id: status
+    prompt: "What is the status of order A101 and when will it arrive?"
+    expected: "Processing; about 5 days"
+    rubric: "States processing and about 5 days; no invented details."
+  - id: total
+    prompt: "What is the combined total of orders A100 and A102 in DKK?"
+    expected: "438 DKK"
+    rubric: "Combined total is 438 DKK (349 + 89)."

@@ -1,0 +1,13 @@
+suite: basics
+estimate: { input_tokens: 400, output_tokens: 150 }
+cases:
+  - id: greet
+    prompt: "Say hello and tell me one fun fact about otters."
+    rubric: "Friendly greeting; one plausible otter fact; at most three sentences."
+  - id: explain
+    prompt: "Explain in two sentences what an inference profile is in Amazon Bedrock."
+    rubric: "Mentions routing model requests across regions or tracking usage/cost; two sentences."
+  - id: danish
+    prompt: "Hvad er hovedstaden i Danmark, og hvor mange indbyggere har den cirka?"
+    expected: "København; omkring 650.000 i kommunen eller 1,3-1,4 millioner i hovedstadsområdet"
+    rubric: "Answers in Danish; says Copenhagen (København); gives a plausible population figure."

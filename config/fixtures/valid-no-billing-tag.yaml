@@ -1,0 +1,10 @@
+prefix: t2
+region: eu-central-1
+account: 123456789012
+removal: destroy
+models:
+  m1: { profile: eu.amazon.nova-pro-v1:0 }
+  k3: { profile: global.moonshotai.kimi-k3, billing_tag: false }
+judge: m1
+agents:
+  tools-agent: { models: [m1, k3], default: k3 }

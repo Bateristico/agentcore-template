@@ -1,0 +1,8 @@
+# expect: unknown model alias 'nope'
+prefix: t1
+region: eu-west-1
+models:
+  m1: { profile: eu.amazon.nova-pro-v1:0 }
+judge: m1
+agents:
+  a: { models: [m1, nope], default: m1 }

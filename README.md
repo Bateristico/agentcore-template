@@ -2,7 +2,7 @@
 
 Deploy [Strands](https://strandsagents.com) agents to **Amazon Bedrock AgentCore Runtime** with AWS CDK, run them on different Bedrock models, and see what each agent × model combination costs: per call, per benchmark, and on your AWS bill.
 
-> **Status:** design approved, implementation pending. This guide describes the target interface from the [design spec](docs/superpowers/specs/2026-10-09-agentcore-strands-template-design.md). Commands will work once the implementation lands.
+> **Status:** implemented and validated end to end in eu-central-1: gates G0–G10 pass. Billing reconciliation (G11) needs cost allocation tags activated in the payer account first (see [§4.5](#45-one-time-turn-on-billing-tags)).
 
 **What you get**
 
@@ -35,15 +35,14 @@ Deploy [Strands](https://strandsagents.com) agents to **Amazon Bedrock AgentCore
 | AWS CLI | v2 | `aws --version` |
 | Node.js | 20+ | `node --version` |
 | AWS CDK CLI | v2 | `npx cdk --version` |
-| Docker Desktop | with `buildx` | `docker buildx ls` (the list must include `linux/arm64`) |
 | uv | 0.9+ | `uv --version` (uv installs the right Python for you) |
 
 You also need:
 
-- **An AWS profile** for the target account with permission to deploy CloudFormation, IAM, ECR, S3, CloudWatch, Bedrock, and AgentCore resources. For the validation account, use `<profile>`.
+- **An AWS profile** for the target account with permission to deploy CloudFormation, IAM, ECR, S3, CloudWatch, Bedrock, and AgentCore resources. You set it once in `.env` (see [§3](#3-configure)).
 - **Bedrock model access** in the target region for every model you list in `config/deploy.yaml`. The preflight check (step 4.2) verifies this.
 
-> **Windows note:** AgentCore only runs `linux/arm64` containers. Docker Desktop builds them through emulation, so the first build takes a few minutes. If `linux/arm64` is missing from `docker buildx ls`, see [Troubleshooting](#9-troubleshooting).
+> **No Docker needed:** AgentCore only runs `linux/arm64` containers. The images are built in AWS CodeBuild on an ARM build host during `cdk deploy`, so your machine needs no Docker and no emulation. Each image build takes a few minutes and costs a few cents.
 
 ## 2. Install
 
@@ -56,7 +55,35 @@ cd infra; npm ci; cd ..    # CDK (TypeScript) deps
 
 ## 3. Configure
 
-There are two files, both in `config/`.
+There is one file for your local environment (`.env`) and two files in `config/`.
+
+### `.env`: which AWS profile to use
+
+Copy the example and set `AWS_PROFILE` to the AWS CLI profile of the target account:
+
+```powershell
+Copy-Item .env.example .env     # bash: cp .env.example .env
+```
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `AWS_PROFILE` | yes | AWS CLI profile for the target account. Used by every `uv run` command, the UI, the `aws` CLI, and `cdk`. |
+| `AWS_REGION` | no | Region for the `aws` CLI. The template itself deploys to the `region` in `config/deploy.yaml`, so keep the two the same. |
+| `TMPL_G11_DAYS` | no | Window in whole days for billing reconciliation (gate G11). Default `3`. |
+
+`.env` is git-ignored, so never commit it. Load it into your shell once per terminal session, before running any command in this README:
+
+```powershell
+# PowerShell
+Get-Content .env | Where-Object { $_ -match '^\s*[^#\s][^=]*=' } | ForEach-Object { $k, $v = $_ -split '=', 2; Set-Item "env:$($k.Trim())" $v.Trim() }
+```
+
+```bash
+# bash / zsh
+set -a; source .env; set +a
+```
+
+The commands below rely on `AWS_PROFILE` and have no `--profile` flag. To target another profile for one command, add `--profile <name>`, which overrides `AWS_PROFILE`.
 
 ### `config/deploy.yaml`: what gets deployed where
 
@@ -84,16 +111,19 @@ agents:                         # folder name under agents/ -> allowed models + 
 To see which model profiles your account offers:
 
 ```powershell
-aws bedrock list-inference-profiles --profile <profile> --region eu-central-1 --query "inferenceProfileSummaries[].inferenceProfileId" --output text
+aws bedrock list-inference-profiles --region eu-central-1 --query "inferenceProfileSummaries[].inferenceProfileId" --output text
 ```
 
 ### `config/pricing.yaml`: what tokens cost
 
-This file holds USD per 1M tokens for every model alias, plus AgentCore compute rates. Every alias in `deploy.yaml` must have a price, or preflight fails. To propose updates from the AWS Price List API:
+This file holds USD per 1M tokens for every model alias, plus AgentCore compute rates. Every alias in `deploy.yaml` must have a price, or preflight fails. To compare it with the AWS Price List API:
 
 ```powershell
-uv run scripts/refresh_pricing.py --region eu-central-1   # prints a diff; review it, then accept
+uv run scripts/refresh_pricing.py --region eu-central-1           # prints a diff; changes nothing
+uv run scripts/refresh_pricing.py --region eu-central-1 --write   # writes the changed prices into pricing.yaml
 ```
+
+> **Prices are region-specific.** The shipped `pricing.yaml` is for **eu-central-1**: both the prices and the Price List usage types each model is looked up by (`source.usage_types`) differ by region. Before deploying to another region, re-derive the usage types for that region and run `refresh_pricing.py --region <region>`. The script exits with code 1 and lists every price it cannot find, which means a usage type does not exist in that region.
 
 Prices are applied when results are **read**, never stored as dollars. You can change prices at any time without redeploying, and re-price old benchmark runs.
 
@@ -102,31 +132,33 @@ Prices are applied when results are **read**, never stored as dollars. You can c
 ### 4.1 Log in
 
 ```powershell
-aws sso login --profile <profile>
-aws sts get-caller-identity --profile <profile>     # confirm the account
+aws sso login
+aws sts get-caller-identity     # confirm the account
 ```
 
 ### 4.2 Preflight
 
-This checks the account, the CDK bootstrap, Docker arm64 support, model access (about 1 token per model), and pricing coverage. Nothing is deployed.
+This checks the account, the CDK bootstrap, model access (a few tokens per model), and pricing coverage. Nothing is deployed.
 
 ```powershell
-uv run validate g0 --profile <profile>
+uv run validate g0
 ```
 
 If the account isn't CDK-bootstrapped yet, preflight says so. Bootstrap it once:
 
 ```powershell
 cd infra
-npx cdk bootstrap aws://<ACCOUNT_ID>/eu-central-1 --profile <profile>
+npx cdk bootstrap aws://<ACCOUNT_ID>/eu-central-1
+cd ..
 ```
 
 ### 4.3 Deploy
 
 ```powershell
 cd infra
-npx cdk diff   --all --profile <profile>     # review what will be created
-npx cdk deploy --all --profile <profile>
+npx cdk diff   --all     # review what will be created
+npx cdk deploy --all
+cd ..                                           # back to the repo root for the uv commands below
 ```
 
 This creates:
@@ -139,13 +171,15 @@ This creates:
 To deploy or update a single agent:
 
 ```powershell
-npx cdk deploy tmpl-agent-tools-agent --profile <profile>
+cd infra
+npx cdk deploy tmpl-agent-tools-agent
+cd ..
 ```
 
 ### 4.4 Verify the deployment
 
 ```powershell
-uv run validate g4 --profile <profile>    # one cheap call per agent x model
+uv run validate g4    # one cheap call per agent x model
 ```
 
 ### 4.5 One-time: turn on billing tags
@@ -155,24 +189,28 @@ These tags let Cost Explorer show real billed cost per agent and model. You only
 1. Open the AWS Billing console, go to **Cost allocation tags**, and activate `project`, `agent`, and `model`. If the account belongs to an AWS Organization, this has to happen in the **management (payer) account**.
 2. Wait about 24 hours for data to appear.
 
+Cost Explorer only attributes tags to usage that happens **after** activation. Usage from before activation stays untagged unless the payer account requests a **cost allocation tag backfill** (Billing > Cost allocation tags > Backfill tags). To check billing reconciliation (G11), follow [§5.5](#55-full-validation).
+
 ## 5. Run it
 
 ### 5.1 Web UI (recommended)
 
 ```powershell
-uv run streamlit run ui/app.py -- --profile <profile>
+uv run streamlit run ui/app.py
 ```
+
+To use another profile than `AWS_PROFILE`, pass it after `--`: `uv run streamlit run ui/app.py -- --profile <name>`.
 
 This opens http://localhost:8501 with three pages:
 
 - **Playground:** pick an agent and model, then chat. Every answer shows its tokens, latency, and cost.
-- **Benchmarks:** pick an agent, test suite, models, and number of repeats. You see a cost estimate first and confirm before anything runs. Results update live as calls finish. You can also browse past runs and open their reports.
+- **Benchmarks:** pick an agent, test suite, models, and number of repeats. You see a cost estimate first and confirm before anything runs. A progress bar updates live as calls finish. You can also browse past runs and open their reports.
 - **Costs:** live cost per agent × model from CloudWatch, shown next to the billed cost from Cost Explorer.
 
 ### 5.2 Single call from the CLI
 
 ```powershell
-uv run invoke --agent tools-agent --model haiku-4-5 --prompt "What is 17% of 2340?" --profile <profile>
+uv run invoke --agent tools-agent --model haiku-4-5 --prompt "What is 17% of 2340?"
 ```
 
 This prints the answer plus a usage block (tokens, latency, cycles, tool calls) and the cost. If you leave out `--model`, the agent's default model is used.
@@ -193,7 +231,7 @@ cases:
 Run a suite:
 
 ```powershell
-uv run bench/run.py --agent tools-agent --suite basics --models haiku-4-5,sonnet-4-6,nova-pro --repeats 3 --profile <profile>
+uv run bench/run.py --agent tools-agent --suite basics --models haiku-4-5,sonnet-4-6,nova-pro --repeats 3
 ```
 
 - The runner shows a **cost estimate** and asks you to confirm. Add `--yes` to skip the prompt in scripts.
@@ -213,7 +251,7 @@ uv run bench/run.py --agent tools-agent --suite basics --models haiku-4-5,sonnet
 - **Billed cost vs. estimate** (needs step 4.5):
 
   ```powershell
-  uv run scripts/reconcile_costs.py --days 7 --profile <profile>
+  uv run scripts/reconcile_costs.py --days 7
   ```
 
 ### 5.5 Full validation
@@ -221,27 +259,34 @@ uv run bench/run.py --agent tools-agent --suite basics --models haiku-4-5,sonnet
 To run all the gates in order (preflight, offline tests, local smoke, deploy, matrix, metering accuracy, judge calibration, benchmark, UI, portability, teardown):
 
 ```powershell
-uv run validate all --profile <profile>
+uv run validate all
 ```
 
 Evidence is written to `validation/<timestamp>/`. Two things to know:
 
 - `validate all` **ends by destroying the stacks** (gate G10). To validate without tearing down, run up to G9: `uv run validate all --until g9`.
-- Billing reconciliation (G11) only works 24–48 hours later: `uv run validate g11 --profile <profile>`.
+- Billing reconciliation (G11) is a separate step, because Cost Explorer needs tagged usage and 24–48 hours:
+
+  1. Activate the cost allocation tags ([§4.5](#45-one-time-turn-on-billing-tags)). Optionally ask the payer account to request a tag backfill; without it, only usage **after** activation counts.
+  2. Deploy: `cd infra; npx cdk deploy --all; cd ..`
+  3. Make tagged calls: `uv run validate g4` and `uv run validate g7 --yes` (or run a benchmark).
+  4. Wait 24–48 hours.
+  5. Within 3 days of those calls: `uv run validate g11`. G11 compares the last 3 whole completed UTC days (ending yesterday). To widen the window, set `TMPL_G11_DAYS`, for example `$env:TMPL_G11_DAYS = 5` in PowerShell.
+  6. Destroy the stacks ([§6](#6-destroy-it)).
 
 ## 6. Destroy it
 
 ### 6.1 Note the results bucket name (only if you want to delete it later)
 
 ```powershell
-aws cloudformation describe-stacks --stack-name tmpl-platform --profile <profile> --region eu-central-1 --query "Stacks[0].Outputs[?OutputKey=='ResultsBucketName'].OutputValue" --output text
+aws cloudformation describe-stacks --stack-name tmpl-platform --region eu-central-1 --query "Stacks[0].Outputs[?OutputKey=='ResultsBucketName'].OutputValue" --output text
 ```
 
 ### 6.2 Destroy the stacks
 
 ```powershell
 cd infra
-npx cdk destroy --all --profile <profile>
+npx cdk destroy --all
 ```
 
 This removes every runtime, role, inference profile, and the dashboard that this template created. It **never touches resources without the `prefix`**, such as other AgentCore runtimes already in the account.
@@ -251,7 +296,7 @@ This removes every runtime, role, inference profile, and the dashboard that this
 - With `removal: retain` (the default), the bucket and your benchmark history are kept. To delete them too:
 
   ```powershell
-  aws s3 rb s3://<results-bucket> --force --profile <profile>
+  aws s3 rb s3://<results-bucket> --force
   ```
 
 - With `removal: destroy`, the bucket is emptied and deleted along with the stacks.
@@ -259,22 +304,23 @@ This removes every runtime, role, inference profile, and the dashboard that this
 ### 6.4 Confirm nothing is left behind
 
 ```powershell
-aws resourcegroupstaggingapi get-resources --tag-filters Key=project,Values=tmpl --profile <profile> --region eu-central-1 --query "ResourceTagMappingList[].ResourceARN"
+aws resourcegroupstaggingapi get-resources --tag-filters Key=project,Values=tmpl --region eu-central-1 --query "ResourceTagMappingList[].ResourceARN"
 ```
 
 The list should be empty, or contain only the retained bucket.
 
 ## 7. Deploy to another AWS account
 
-1. Create or choose an AWS CLI profile for that account and log in.
+1. Create or choose an AWS CLI profile for that account, set it as `AWS_PROFILE` in `.env` (and `AWS_REGION` to the new region), reload `.env` ([§3](#env-which-aws-profile-to-use)), and log in.
 2. In `config/deploy.yaml`, set `region`. Optionally pin `account`, and change `prefix` if another copy already runs there.
 3. Check that every model alias exists in that region:
 
    ```powershell
-   aws bedrock list-inference-profiles --profile <profile> --region <region>
+   aws bedrock list-inference-profiles --region <region>
    ```
 
-4. Run steps [4.2](#42-preflight) to [4.5](#45-one-time-turn-on-billing-tags) with `--profile <profile>`.
+4. If the region is not eu-central-1, re-derive `config/pricing.yaml` for it: prices and Price List usage types differ by region (see [§3](#configpricingyaml-what-tokens-cost)). `uv run scripts/refresh_pricing.py --region <region>` must exit with code 0 before you trust the cost numbers.
+5. Run steps [4.2](#42-preflight) to [4.5](#45-one-time-turn-on-billing-tags).
 
 Nothing in the code is tied to a specific account. Validation gate G9 proves this.
 
@@ -286,33 +332,51 @@ Nothing in the code is tied to a specific account. Validation gate G9 proves thi
 2. Edit `prompt.md` (the system prompt), add tools in `tools.py`, and add any extra dependencies to `requirements.txt`. `agent.py` only has to export:
 
    ```python
+   from pathlib import Path
+
+   from strands import Agent
+
+   # Read relative to this file, not the working directory (it is /app in the container).
+   PROMPT = (Path(__file__).parent / "prompt.md").read_text(encoding="utf-8")
+
    def build_agent(model) -> Agent:
-       return Agent(model=model, system_prompt=open("prompt.md").read(), tools=[...])
+       return Agent(model=model, system_prompt=PROMPT, tools=[...])
    ```
 
 3. Add the agent to `config/deploy.yaml` under `agents:` with its allowed models and default.
 4. Optionally add a test suite in `bench/suites/<new-agent>/`.
-5. Deploy it:
+5. Deploy it, and redeploy the platform stack so the `tmpl-agent-costs` dashboard includes the new agent:
 
    ```powershell
-   npx cdk deploy tmpl-agent-<new-agent> --profile <profile>
+   cd infra
+   npx cdk deploy tmpl-agent-<new-agent> tmpl-platform
+   cd ..
    ```
 
 **New model**
 
 1. Add an alias under `models:` in `deploy.yaml` and a price in `pricing.yaml`.
 2. Add the alias to the agents that should use it.
-3. Redeploy those agent stacks. This creates the new tagged inference profile and updates the allow-list.
+3. Redeploy those agent stacks. This creates the new tagged inference profile and updates the allow-list. Also redeploy `tmpl-platform` so the dashboard shows the new model (or simply run `npx cdk deploy --all` from `infra/`).
+
+**Agent kit dependencies**
+
+The image installs the agent kit (`agents/_kit`) with its third-party dependencies pinned to `uv.lock`, through `agents/_kit/requirements.lock`. After changing the kit's dependencies or running `uv lock`, regenerate it from the repo root and commit it (gate G1 fails while it is stale):
+
+```powershell
+uv export --frozen --package agentkit --no-hashes --no-emit-workspace --no-dev --no-header -o agents/_kit/requirements.lock
+```
 
 ## 9. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| `ExpiredToken` / `The SSO session has expired` | `aws sso login --profile <profile>` |
-| Docker build fails with `exec format error`, or there's no `linux/arm64` builder | `docker run --privileged --rm tonistiigi/binfmt --install arm64`, then `docker buildx create --use` |
+| `ExpiredToken` / `The SSO session has expired` | `aws sso login` |
+| `cdk deploy` fails while building an agent image | Read the CodeBuild log: CloudWatch Logs group `/aws/codebuild/<project>` named in the error, or the CodeBuild console. Usually a dependency in `agents/<name>/requirements.txt` without an arm64 wheel |
 | Preflight: `AccessDeniedException` for a model | Enable access to that model in the Bedrock console (**Model access**) for this region, or remove the alias from `deploy.yaml` |
-| Preflight: `alias has no price` | Add the alias to `config/pricing.yaml` |
+| Preflight check `every model has a price` fails (it lists the aliases), or `cdk synth`/`deploy` stops with `pricing.yaml has no price for: <aliases>` | Add those aliases to `config/pricing.yaml` |
 | Invocation error `model 'x' not allowed` | Add the alias to that agent's `models:` list and redeploy the agent stack |
+| A `nova-pro` answer contains `<thinking>...</thinking>` text | That is the model's own output (Nova Pro sometimes writes its reasoning into the answer), not a template bug. Ask for the final answer only in `prompt.md`, or compare models in a benchmark |
 | `ThrottlingException` during benchmarks | Lower concurrency with `--concurrency 2`, or request a Bedrock quota increase |
 | Costs page says "cost allocation tags not active" | Do step [4.5](#45-one-time-turn-on-billing-tags) and wait about 24 hours |
 | A model shows "no billing tag" | That model can't use an application inference profile. Its cost is token-based only, which is expected. Check a new model with `uv run scripts/probe_models.py --profile <p> --models <profile-id>` before adding it. |
@@ -320,4 +384,4 @@ Nothing in the code is tied to a specific account. Validation gate G9 proves thi
 
 ---
 
-**Cost note:** a full validation run in `<profile>` is expected to cost under $5. The preflight and benchmark commands always print an estimate before making paid calls.
+**Cost note:** a full validation run is expected to cost under $5. The preflight and benchmark commands always print an estimate before making paid calls.
